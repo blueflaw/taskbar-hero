@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Taskbar Hero Clone</title>
+  <link rel="stylesheet" href="style.css" />
+  <!--
+    Electron's renderer uses the browser's native ES module loader for
+    <script type="module">, not Node's require() resolution - so a bare
+    specifier like `import * as PIXI from 'pixi.js'` can't resolve on its
+    own. This import map points it at PixiJS's pre-bundled, dependency-free
+    ESM file so no bundler (webpack/vite/esbuild) is needed for this prototype.
+  -->
+  <script type="importmap">
+    {
+      "imports": {
+        "pixi.js": "../node_modules/pixi.js/dist/pixi.mjs"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="game-root"></div>
+  <script type="module" src="game.js"></script>
+</body>
+</html>

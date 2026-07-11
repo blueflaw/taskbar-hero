@@ -1,0 +1,327 @@
+import * as PIXI from 'pixi.js';
+import { SaveManager } from './state/SaveManager.js';
+import { ProgressionSystem, BOSS_INTERVAL } from './systems/ProgressionSystem.js';
+import { FloatingTextManager } from './fx/FloatingTextManager.js';
+import { triggerHitFlash, updateHitFlash } from './fx/HitFlash.js';
+import { SoundManager } from './fx/SoundManager.js';
+import { startLunge, updateLunge } from './fx/MeleeAnim.js';
+import { Background } from './fx/Background.js';
+
+const app = new PIXI.Application({
+  resizeTo: document.getElementById('game-root'),
+  backgroundAlpha: 0, // fully transparent - only sprites show
+  antialias: false,   // crisp pixel art
+});
+document.getElementById('game-root').appendChild(app.view);
+
+// --- Sprites ---
+// Swap these PNGs in src/assets/ with your own art later - same filenames,
+// same ~32x32 canvas proportions, and everything downstream keeps working.
+const SPRITE_PATHS = {
+  knight: 'assets/hero-knight.png',
+  ranger: 'assets/hero-ranger.png',
+  priest: 'assets/hero-priest.png',
+  enemy: 'assets/enemy-slime.png',
+};
+
+const SPRITE_SCALE = 0.4; // 96px source -> ~38px, fits the 48px-tall strip
+const ENEMY_SLOT_SPACING = 34; // px between enemies in a wave, matches hero spacing
+const DEATH_FADE_DURATION = 0.3; // seconds for a defeated enemy to fade out
+
+function makeHeroSprite(hero) {
+  const sprite = PIXI.Sprite.from(SPRITE_PATHS[hero.classId] ?? SPRITE_PATHS.knight);
+  sprite.scale.set(SPRITE_SCALE);
+  sprite.anchor.set(0.5, 1);
+  return sprite;
+}
+
+function makeEnemySprite() {
+  const sprite = PIXI.Sprite.from(SPRITE_PATHS.enemy);
+  sprite.scale.set(SPRITE_SCALE);
+  sprite.anchor.set(0.5, 1);
+  return sprite;
+}
+
+// Formation layout: index 0 (front/tank) sits closest to the heroes, the
+// last index (back/archer) sits at the strip's right edge - mirrors how the
+// original single-enemy rested at that same right-edge position.
+function enemySlotX(indexFromFront, waveSize, screenWidth) {
+  const rightEdge = screenWidth - 22;
+  return rightEdge - (waveSize - 1 - indexFromFront) * ENEMY_SLOT_SPACING;
+}
+
+async function main() {
+  const gameState = await SaveManager.load();
+  SaveManager.startAutosave(gameState);
+
+  // Lay out hero sprites left-to-right, enemies form up on the right.
+  // Anchor is bottom-center, so y sits near the bottom of the 48px strip.
+  const groundY = app.screen.height - 2;
+
+  const background = new Background(app, app.screen.width, app.screen.height, groundY);
+
+  const heroSprites = gameState.party.map((hero, i) => {
+    const sprite = makeHeroSprite(hero);
+    const baseX = 20 + i * 34;
+    sprite.x = baseX;
+    sprite.y = groundY;
+    app.stage.addChild(sprite);
+    return { hero, sprite, baseScale: SPRITE_SCALE, baseTint: 0xffffff, hitTimer: 0, baseX };
+  });
+
+  // Enemy entries are built dynamically as waves spawn (see the
+  // 'wave-spawned' event below) - there's no fixed enemy count anymore.
+  let enemyEntries = [];
+
+  function findEnemyEntry(enemyId) {
+    return enemyEntries.find((e) => e.enemyId === enemyId);
+  }
+
+  const floatingText = new FloatingTextManager(app.stage);
+  const sound = new SoundManager(0.4);
+
+  // Small clickable icon that opens the inventory popup. Sits top-left,
+  // out of the way of the hero lineup.
+  const menuButton = new PIXI.Graphics();
+  menuButton.eventMode = 'static';
+  menuButton.cursor = 'pointer';
+  menuButton.beginFill(0x3a3648, 0.9);
+  menuButton.lineStyle(1, 0x5a5570, 1);
+  menuButton.drawRoundedRect(0, 0, 16, 14, 3);
+  menuButton.endFill();
+  // Tiny "bag" glyph - two dots to suggest a satchel clasp
+  menuButton.beginFill(0xeae6f5);
+  menuButton.drawRect(6, 4, 2, 2);
+  menuButton.drawRect(9, 4, 2, 2);
+  menuButton.endFill();
+  menuButton.x = 4;
+  menuButton.y = 4;
+  menuButton.on('pointertap', () => window.taskbarHero.openInventory());
+  app.stage.addChild(menuButton);
+
+  // Basic hover-to-interact: only capture mouse when actually over the window content
+  app.view.addEventListener('mouseenter', () => window.taskbarHero.setIgnoreMouse(false));
+  app.view.addEventListener('mouseleave', () => window.taskbarHero.setIgnoreMouse(true));
+
+  // --- Inventory window sync ---
+  // The inventory popup has no direct access to gameState (it lives in a
+  // different renderer process) - it asks, and we answer with a plain-object snapshot.
+  function serializeForInventory() {
+    return {
+      gold: gameState.gold,
+      party: gameState.party.map((hero) => ({
+        id: hero.id,
+        label: hero.label,
+        classId: hero.classId,
+        level: hero.level,
+        hp: hero.hp,
+        maxHp: hero.maxHp,
+        equipment: hero.equipment,
+      })),
+      inventory: gameState.inventory,
+    };
+  }
+
+  window.taskbarHero.onProvideInventorySync(() => {
+    window.taskbarHero.sendInventorySync(serializeForInventory());
+  });
+
+  // The inventory window tells us "equip item X to hero Y" - we own the real
+  // Hero instances, so we perform the actual mutation and drop the item from inventory.
+  window.taskbarHero.onEquipItem(({ heroId, itemId }) => {
+    const hero = gameState.party.find((h) => h.id === heroId);
+    const itemIndex = gameState.inventory.findIndex((i) => i.id === itemId);
+    if (!hero || itemIndex === -1) return;
+
+    const [item] = gameState.inventory.splice(itemIndex, 1);
+    const previouslyEquipped = hero.equipment[item.slot];
+    hero.equip(item);
+    if (previouslyEquipped) gameState.inventory.push(previouslyEquipped);
+
+    SaveManager.save(gameState);
+
+    // Push a fresh snapshot right away so the popup updates without waiting on its poll.
+    window.taskbarHero.sendInventorySync(serializeForInventory());
+  });
+
+  // --- Game feedback (lunge animation, damage numbers, hit flash, sound) ---
+  // ProgressionSystem forwards each raw event here as it happens. For attacks,
+  // we don't fire damage numbers/flash/sound immediately - instead we kick
+  // off a lunge (dash toward the target and back) and let its impact
+  // callback fire the feedback right as the sprite "reaches" its target, so
+  // the numbers land in sync with the swing instead of popping instantly.
+  function onGameEvent(event) {
+    if (event.type === 'hero-attack') {
+      const attacker = heroSprites.find(({ hero }) => hero.id === event.source);
+      const targetEntry = findEnemyEntry(event.targetEnemyId);
+      if (!attacker || !targetEntry) return;
+
+      startLunge(attacker, +1, () => {
+        // The target may have died and been cleaned up (or a whole new wave
+        // may have spawned) in the ~0.1s between the hit resolving and the
+        // lunge's impact frame - if so, its sprite is already destroyed.
+        if (!enemyEntries.includes(targetEntry)) return;
+        floatingText.spawn(targetEntry.sprite.x, targetEntry.sprite.y - 30, `-${event.amount}`, 0xffcc66);
+        triggerHitFlash(targetEntry);
+        sound.play('hit-dealt');
+      });
+      return;
+    }
+
+    if (event.type === 'enemy-attack') {
+      const attackerEntry = findEnemyEntry(event.source);
+      const target = heroSprites.find(({ hero }) => hero.id === event.target);
+      if (!attackerEntry || !target) return;
+
+      startLunge(attackerEntry, -1, () => {
+        if (!enemyEntries.includes(attackerEntry)) return;
+        floatingText.spawn(target.sprite.x, target.sprite.y - 30, `-${event.amount}`, 0xff5f5f);
+        triggerHitFlash(target);
+        sound.play('hit-taken');
+      });
+      return;
+    }
+
+    if (event.type === 'enemy-killed') {
+      const entry = findEnemyEntry(event.enemyId);
+      if (entry && !entry.dying) {
+        entry.dying = true;
+        entry.deathTimer = 0;
+      }
+      return;
+    }
+
+    if (event.type === 'heal') {
+      const target = heroSprites.find(({ hero }) => hero.id === event.target);
+      if (!target) return;
+      floatingText.spawn(target.sprite.x, target.sprite.y - 30, `+${event.amount}`, 0x6fe38a);
+      return;
+    }
+
+    if (event.type === 'level-up') {
+      const target = heroSprites.find(({ hero }) => hero.id === event.heroId);
+      if (target) {
+        floatingText.spawn(target.sprite.x, target.sprite.y - 30, 'LEVEL UP!', 0xffe066);
+      }
+      sound.play('level-up');
+      return;
+    }
+
+    if (event.type === 'loot-drop') {
+      // Front enemy (tank/index 0) is a sensible visual origin for loot text.
+      const originX = enemyEntries[0]?.sprite.x ?? app.screen.width - 40;
+      const originY = enemyEntries[0]?.sprite.y ?? groundY;
+      floatingText.spawn(originX, originY - 30, event.item.label, 0xb98bff);
+      sound.play('loot-drop');
+      return;
+    }
+
+    if (event.type === 'wave-spawned') {
+      // Clear out anything left over from before (should normally already be
+      // empty - each enemy removes itself via the death-fade below - but this
+      // is a safety net for edge cases like a party-wipe reset).
+      enemyEntries.forEach((entry) => {
+        app.stage.removeChild(entry.sprite);
+        entry.sprite.destroy();
+      });
+      enemyEntries = [];
+
+      background.pulse();
+      background.setBossProximity((event.stage % BOSS_INTERVAL) / BOSS_INTERVAL);
+
+      const waveSize = event.enemies.length;
+      event.enemies.forEach((enemy, i) => {
+        const baseX = enemySlotX(i, waveSize, app.screen.width);
+        const sprite = makeEnemySprite();
+        const isBoss = event.isBoss;
+
+        const entry = {
+          enemyId: enemy.id,
+          sprite,
+          baseScale: SPRITE_SCALE * (isBoss ? 1.35 : 1),
+          baseTint: isBoss ? 0xff5555 : 0xffffff,
+          hitTimer: 0,
+          baseX,
+          dying: false,
+        };
+
+        // Slide in from off-screen right, staggered slightly per slot so a
+        // multi-enemy wave doesn't arrive as one indistinguishable clump.
+        const offscreenX = app.screen.width + 24 + i * 16;
+        sprite.y = groundY;
+        sprite.x = offscreenX;
+        entry.spawnAnim = { timer: -i * 0.08, duration: 0.35, fromX: offscreenX, toX: baseX };
+
+        app.stage.addChild(sprite);
+        enemyEntries.push(entry);
+      });
+
+      if (event.isBoss) {
+        floatingText.spawn(app.screen.width / 2, groundY - 34, 'BOSS INCOMING', 0xff5555);
+      }
+    }
+  }
+
+  app.ticker.add(() => {
+    const dt = app.ticker.deltaMS / 1000; // seconds since last frame
+
+    ProgressionSystem.simulate(gameState, dt, {
+      allowChests: true,
+      step: dt,
+      onEvent: onGameEvent,
+    });
+
+    // Sync hero sprite opacity to hp% as a cheap "damaged" visual cue
+    heroSprites.forEach(({ hero, sprite }) => {
+      sprite.alpha = hero.isAlive() ? Math.max(0.3, hero.hp / hero.maxHp) : 0.15;
+    });
+
+    background.update(dt);
+
+    // Animate floating damage/heal numbers and hero hit-flash/lunge
+    floatingText.update(dt);
+    heroSprites.forEach((entry) => {
+      updateHitFlash(entry, dt);
+      updateLunge(entry, dt);
+    });
+
+    // Each enemy entry is in exactly one of three states this frame:
+    // dying (fading out after death), spawning (sliding in), or active
+    // (normal hp-sync + hit-flash + lunge-toward-hero-on-attack).
+    for (let i = enemyEntries.length - 1; i >= 0; i--) {
+      const entry = enemyEntries[i];
+
+      if (entry.dying) {
+        entry.deathTimer += dt;
+        const t = Math.min(1, entry.deathTimer / DEATH_FADE_DURATION);
+        entry.sprite.alpha = 1 - t;
+        entry.sprite.scale.set(entry.baseScale * (1 - t * 0.3));
+        if (t >= 1) {
+          app.stage.removeChild(entry.sprite);
+          entry.sprite.destroy();
+          enemyEntries.splice(i, 1);
+        }
+        continue;
+      }
+
+      if (entry.spawnAnim) {
+        const spawn = entry.spawnAnim;
+        spawn.timer += dt;
+        if (spawn.timer >= 0) {
+          const t = Math.min(1, spawn.timer / spawn.duration);
+          const eased = 1 - Math.pow(1 - t, 2); // ease-out
+          entry.sprite.x = spawn.fromX + (spawn.toX - spawn.fromX) * eased;
+          if (t >= 1) entry.spawnAnim = null;
+        }
+        continue;
+      }
+
+      const enemy = gameState.enemies.find((e) => e.id === entry.enemyId);
+      if (enemy) entry.sprite.alpha = Math.max(0.2, enemy.hp / enemy.maxHp);
+      updateHitFlash(entry, dt);
+      updateLunge(entry, dt);
+    }
+  });
+}
+
+main();
