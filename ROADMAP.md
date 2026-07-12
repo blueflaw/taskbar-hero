@@ -21,13 +21,17 @@ things inside a phase — the phase order matters more than the item order.
   regardless of the wave-scaling formula. Multiple heroes were already
   supported by the architecture (`GameState.addHero()` + generic party
   rendering) - this didn't need new code, just calling it.
+- [x] **Recruit-hero UI** — the inventory popup now has a Recruit section:
+  spend gold to add Ranger (60g) or Priest (120g) to the party, capped at
+  `MAX_PARTY_SIZE` (4). Same window-relay pattern as equipping items - the
+  inventory window never touches gold/party directly, it asks the game
+  window (which owns `GameState`) to do it.
 - [ ] **Next up is your call** — see "possible next steps" below.
 
-*(Possible next steps: a UI to actually recruit/add heroes mid-game (party
-size is still fixed at 1 knight by default - `addHero()` works but nothing
-in the UI calls it yet); give enemy roles distinct sprites instead of the
-same slime reskinned; swap in real hero art now that the animation/wave
-systems are in place (Phase 2).)*
+*(Possible next steps: give enemy roles distinct sprites instead of the
+same slime reskinned; swap in real hero art now that the animation/wave/
+recruit systems are in place (Phase 2); a 4th hero class so there's
+something left to recruit after Ranger + Priest.)*
 
 ---
 
@@ -68,7 +72,7 @@ illustration skills take over from mine.
 Goal: give players (including future-you) reasons to keep the game running for weeks.
 
 - [ ] More hero classes beyond knight/ranger/priest (mage? rogue?)
-- [ ] Recruit-hero UI (spend gold to add ranger/priest to the party - `GameState.addHero()` and all the rendering/combat/lunge code already supports an arbitrary party size, this just needs a button somewhere calling it)
+- [x] Recruit-hero UI (spend gold to add ranger/priest to the party via the inventory popup's Recruit section)
 - [x] Basic boss stages every `BOSS_INTERVAL` (10) stages - bigger, red-tinted
   enemy, background tint builds toward it. Still needs: actually different
   stats/attack pattern (currently just a reskinned normal enemy) and a

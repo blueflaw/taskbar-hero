@@ -21,7 +21,7 @@ function createWindow() {
     x: screenW - WINDOW_WIDTH - 8,      // bottom-right, nudge left of system tray
     y: screenH - WINDOW_HEIGHT,          // sit right above the taskbar
     frame: false,
-    transparent: false,
+    transparent: true,
     resizable: false,
     alwaysOnTop: true,
     skipTaskbar: true,                   // don't show ITS OWN icon in the taskbar
@@ -153,6 +153,12 @@ ipcMain.on('inventory-sync-data', (_evt, data) => {
 // actually mutates the live Hero/GameState objects.
 ipcMain.on('equip-item', (_evt, payload) => {
   if (mainWindow) mainWindow.webContents.send('equip-item', payload);
+});
+
+// Inventory window requests a hero recruit; relay to the game window, which
+// owns gold/party and does the actual "can afford it" check + addHero() call.
+ipcMain.on('recruit-hero', (_evt, classId) => {
+  if (mainWindow) mainWindow.webContents.send('recruit-hero', classId);
 });
 
 // --- Save/load handlers (main process owns disk access) ---

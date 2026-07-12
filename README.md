@@ -40,9 +40,10 @@ src/
   style.css               Transparent background so only sprites are visible
 
   inventory.html / inventory.js / inventory.css
-                          Framed popup window: party equipment slots +
-                          inventory grid, click an item then click a
-                          matching slot to equip
+                          Framed popup window: party equipment slots, a
+                          Recruit section to spend gold on new heroes, and
+                          the item grid - click an item then a matching
+                          slot to equip
 
   fx/
     FloatingTextManager.js   Damage/heal number pool - spawns, animates, cleans up
@@ -74,7 +75,8 @@ src/
     SaveManager.js          Load/save + offline-progress simulation on launch
 
   config/
-    heroClasses.js          Data-driven class stats (add classes here, no code changes)
+    heroClasses.js          Data-driven class stats + recruitCost (add classes
+                           here, no code changes). Exports MAX_PARTY_SIZE.
     lootTables.js           Rarity weights and item generation
     enemyRoles.js           Tank/Brawler/Archer stat multipliers + the boss role
     waveConfig.js            BOSS_INTERVAL and wave-size-per-stage scaling
@@ -155,18 +157,28 @@ fires a few frames later - so every impact callback checks
 `enemyEntries.includes(targetEntry)` before touching the sprite, in case it
 was already cleaned up out from under it.
 
-**Multiple heroes** needed no new architecture - `GameState.addHero(classId)`
-and the hero-rendering/combat/lunge code already operated on `gameState.party`
-generically. The starting party is still fixed at one knight; adding more is
-just a matter of calling `addHero()` somewhere (see the Phase 3 checklist
-item for a recruit-hero UI).
+**Multiple heroes** needed almost no new architecture -
+`GameState.addHero(classId)` and the hero-rendering/combat/lunge code already
+operated on `gameState.party` generically. What was missing was a way to
+actually *trigger* it in-game, which is now the inventory popup's **Recruit**
+section: it lists any class not already in the party (`recruitCost > 0` in
+`heroClasses.js`, so the starting knight is excluded) with its gold cost, and
+a disabled button if you can't afford it. Recruiting follows the exact same
+window-relay pattern as equipping an item - the inventory window never
+touches `gold` or `party` directly, it sends a `recruit-hero` request through
+main to the game window, which owns `GameState` and does the affordability +
+`MAX_PARTY_SIZE` checks before calling `addHero()` and pushing a new sprite
+entry onto `heroSprites`. Party size is capped at `MAX_PARTY_SIZE` (4) so the
+formation doesn't outgrow the strip's ~360px width even alongside a max-size
+enemy wave.
 
 ## Next steps to build this out further
 
-Full checklist lives in `ROADMAP.md`. With waves, formations, and multiple
-heroes all working, reasonable next moves: a recruit-hero UI (the code
-already supports it), giving enemy roles distinct sprites instead of the
-same reskinned slime, or Phase 2 (swap in your own art).
+Full checklist lives in `ROADMAP.md`. With waves, formations, multiple
+heroes, and recruiting all working, reasonable next moves: giving enemy
+roles distinct sprites instead of the same reskinned slime, a 4th hero class
+(there's nothing left to recruit after Ranger + Priest), or Phase 2 (swap in
+your own art).
 
 ## Known rough edges (intentional, for a prototype)
 
@@ -174,6 +186,8 @@ same reskinned slime, or Phase 2 (swap in your own art).
   the normal enemy - not a mechanically distinct fight with unique attacks.
 - All enemy roles (tank/brawler/archer) currently share the same sprite -
   only stats differ. Distinct art per role would help readability a lot.
+- Only two heroes are recruitable (Ranger, Priest) before you run out of
+  classes - a 4th class would give the recruit UI more room to matter.
 - No mute/volume UI yet — `SoundManager` supports `setMuted()`/`setVolume()`
   but nothing in the UI calls them. Worth adding once you build the settings
   panel (Phase 5).

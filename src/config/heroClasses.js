@@ -1,5 +1,7 @@
 // Base stats each class starts with at level 1.
 // Keep this data-driven so adding a class never touches game logic.
+// recruitCost is in gold - 0 means "starting hero, not recruitable" (knight
+// begins in the party by default; see GameState).
 export const HERO_CLASSES = {
   knight: {
     label: 'Knight',
@@ -8,6 +10,7 @@ export const HERO_CLASSES = {
     baseDef: 8,
     attackSpeed: 1.0, // attacks per second
     role: 'tank',
+    recruitCost: 0,
   },
   ranger: {
     label: 'Ranger',
@@ -16,6 +19,7 @@ export const HERO_CLASSES = {
     baseDef: 2,
     attackSpeed: 1.6,
     role: 'dps',
+    recruitCost: 60,
   },
   priest: {
     label: 'Priest',
@@ -25,8 +29,13 @@ export const HERO_CLASSES = {
     attackSpeed: 0.8,
     role: 'support',
     healPerSecond: 4,
+    recruitCost: 120,
   },
 };
+
+// Strip is only ~360px wide and enemies share that space - cap party size
+// so the formation doesn't run out of room even in a max-size wave.
+export const MAX_PARTY_SIZE = 4;
 
 // Simple exponential-ish XP curve: xp needed to reach next level
 export function xpToNextLevel(level) {

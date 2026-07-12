@@ -6,6 +6,7 @@ import { triggerHitFlash, updateHitFlash } from './fx/HitFlash.js';
 import { SoundManager } from './fx/SoundManager.js';
 import { startLunge, updateLunge } from './fx/MeleeAnim.js';
 import { Background } from './fx/Background.js';
+import { HERO_CLASSES, MAX_PARTY_SIZE } from './config/heroClasses.js';
 
 const app = new PIXI.Application({
   resizeTo: document.getElementById('game-root'),
@@ -25,6 +26,8 @@ const SPRITE_PATHS = {
 };
 
 const SPRITE_SCALE = 0.4; // 96px source -> ~38px, fits the 48px-tall strip
+const HERO_BASE_X = 20;
+const HERO_SLOT_SPACING = 34; // px between heroes, matches enemy slot spacing
 const ENEMY_SLOT_SPACING = 34; // px between enemies in a wave, matches hero spacing
 const DEATH_FADE_DURATION = 0.3; // seconds for a defeated enemy to fade out
 
@@ -60,14 +63,20 @@ async function main() {
 
   const background = new Background(app, app.screen.width, app.screen.height, groundY);
 
-  const heroSprites = gameState.party.map((hero, i) => {
+  const heroSprites = [];
+
+  function addHeroEntry(hero, index) {
     const sprite = makeHeroSprite(hero);
-    const baseX = 20 + i * 34;
+    const baseX = HERO_BASE_X + index * HERO_SLOT_SPACING;
     sprite.x = baseX;
     sprite.y = groundY;
     app.stage.addChild(sprite);
-    return { hero, sprite, baseScale: SPRITE_SCALE, baseTint: 0xffffff, hitTimer: 0, baseX };
-  });
+    const entry = { hero, sprite, baseScale: SPRITE_SCALE, baseTint: 0xffffff, hitTimer: 0, baseX };
+    heroSprites.push(entry);
+    return entry;
+  }
+
+  gameState.party.forEach((hero, i) => addHeroEntry(hero, i));
 
   // Enemy entries are built dynamically as waves spawn (see the
   // 'wave-spawned' event below) - there's no fixed enemy count anymore.
@@ -107,6 +116,11 @@ async function main() {
   // The inventory popup has no direct access to gameState (it lives in a
   // different renderer process) - it asks, and we answer with a plain-object snapshot.
   function serializeForInventory() {
+    const partyClassIds = new Set(gameState.party.map((h) => h.classId));
+    const recruitable = Object.entries(HERO_CLASSES)
+      .filter(([classId, def]) => def.recruitCost > 0 && !partyClassIds.has(classId))
+      .map(([classId, def]) => ({ classId, label: def.label, cost: def.recruitCost }));
+
     return {
       gold: gameState.gold,
       party: gameState.party.map((hero) => ({
@@ -119,6 +133,8 @@ async function main() {
         equipment: hero.equipment,
       })),
       inventory: gameState.inventory,
+      recruitable,
+      partyFull: gameState.party.length >= MAX_PARTY_SIZE,
     };
   }
 
@@ -141,6 +157,27 @@ async function main() {
     SaveManager.save(gameState);
 
     // Push a fresh snapshot right away so the popup updates without waiting on its poll.
+    window.taskbarHero.sendInventorySync(serializeForInventory());
+  });
+
+  // The inventory window tells us "recruit this class" - we own gold/party,
+  // so the affordability + max-party-size checks happen here, not there.
+  window.taskbarHero.onRecruitHero((classId) => {
+    const classDef = HERO_CLASSES[classId];
+    if (!classDef || classDef.recruitCost <= 0) return; // not a recruitable class
+    if (gameState.party.length >= MAX_PARTY_SIZE) return;
+    if (gameState.party.some((h) => h.classId === classId)) return; // already recruited
+    if (gameState.gold < classDef.recruitCost) return;
+
+    gameState.gold -= classDef.recruitCost;
+    gameState.addHero(classId);
+
+    // The new Hero was appended to gameState.party - mirror that with a new
+    // sprite entry at the next slot. addHeroEntry only needs the index.
+    const newHero = gameState.party[gameState.party.length - 1];
+    addHeroEntry(newHero, gameState.party.length - 1);
+
+    SaveManager.save(gameState);
     window.taskbarHero.sendInventorySync(serializeForInventory());
   });
 

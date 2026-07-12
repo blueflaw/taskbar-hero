@@ -5,4 +5,5 @@ contextBridge.exposeInMainWorld('inventoryBridge', {
   onSyncData: (callback) =>
     ipcRenderer.on('inventory-sync-data', (_evt, data) => callback(data)),
   equipItem: (heroId, itemId) => ipcRenderer.send('equip-item', { heroId, itemId }),
+  recruitHero: (classId) => ipcRenderer.send('recruit-hero', classId),
 });

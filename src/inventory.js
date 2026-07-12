@@ -6,6 +6,7 @@ let latestData = null;
 let selectedItemId = null;
 
 const partyList = document.getElementById('party-list');
+const recruitList = document.getElementById('recruit-list');
 const inventoryGrid = document.getElementById('inventory-grid');
 const goldDisplay = document.getElementById('gold-display');
 const selectedHint = document.getElementById('selected-hint');
@@ -17,6 +18,7 @@ function render() {
   selectedHint.textContent = selectedItemId ? '— pick a hero slot to equip' : '';
 
   renderParty();
+  renderRecruits();
   renderInventory();
 }
 
@@ -91,6 +93,45 @@ function renderInventory() {
 
     inventoryGrid.appendChild(card);
   });
+}
+
+function renderRecruits() {
+  recruitList.innerHTML = '';
+
+  if (latestData.partyFull) {
+    recruitList.innerHTML = '<div class="empty-state">Party is full</div>';
+    return;
+  }
+
+  if (latestData.recruitable.length === 0) {
+    recruitList.innerHTML = '<div class="empty-state">Everyone available has joined</div>';
+    return;
+  }
+
+  latestData.recruitable.forEach((option) => {
+    const canAfford = latestData.gold >= option.cost;
+    const card = document.createElement('div');
+    card.className = 'recruit-card';
+    card.innerHTML = `
+      <div class="recruit-info">
+        <span class="recruit-name">${option.label}</span>
+        <span class="recruit-cost">${option.cost} gold</span>
+      </div>
+      <button class="recruit-button" ${canAfford ? '' : 'disabled'}>Recruit</button>
+    `;
+
+    card.querySelector('.recruit-button').addEventListener('click', () => {
+      if (!canAfford) return;
+      recruit(option.classId);
+    });
+
+    recruitList.appendChild(card);
+  });
+}
+
+function recruit(classId) {
+  window.inventoryBridge.recruitHero(classId);
+  setTimeout(() => window.inventoryBridge.requestSync(), 100);
 }
 
 function equip(heroId, itemId) {

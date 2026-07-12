@@ -16,4 +16,9 @@ contextBridge.exposeInMainWorld('taskbarHero', {
   // objects, so we perform the mutation here.
   onEquipItem: (callback) =>
     ipcRenderer.on('equip-item', (_evt, payload) => callback(payload)),
+
+  // The inventory window asks us to recruit a hero - we own gold/party, so
+  // we do the affordability check and the actual addHero() call here.
+  onRecruitHero: (callback) =>
+    ipcRenderer.on('recruit-hero', (_evt, classId) => callback(classId)),
 });
