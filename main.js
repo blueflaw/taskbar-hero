@@ -21,7 +21,7 @@ function createWindow() {
     x: screenW - WINDOW_WIDTH - 8,      // bottom-right, nudge left of system tray
     y: screenH - WINDOW_HEIGHT,          // sit right above the taskbar
     frame: false,
-    transparent: true,
+    transparent: false,
     resizable: false,
     alwaysOnTop: true,
     skipTaskbar: true,                   // don't show ITS OWN icon in the taskbar
