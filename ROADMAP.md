@@ -26,6 +26,12 @@ things inside a phase — the phase order matters more than the item order.
   `MAX_PARTY_SIZE` (4). Same window-relay pattern as equipping items - the
   inventory window never touches gold/party directly, it asks the game
   window (which owns `GameState`) to do it.
+- [x] **Projectile animation + health bars** — ranged attackers (Ranger
+  hero, Archer enemy role) now fire a small traveling bolt instead of
+  melee-lunging; everyone else still lunges. Every hero and enemy has a
+  small color-graded hp bar (green → yellow → red) that tracks above their
+  sprite, including through lunges and enemy slide-ins. Lives in
+  `src/fx/Projectile.js` and `src/fx/HealthBar.js`.
 - [ ] **Next up is your call** — see "possible next steps" below.
 
 *(Possible next steps: give enemy roles distinct sprites instead of the

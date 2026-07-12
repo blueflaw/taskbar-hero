@@ -7,6 +7,8 @@ import { SoundManager } from './fx/SoundManager.js';
 import { startLunge, updateLunge } from './fx/MeleeAnim.js';
 import { Background } from './fx/Background.js';
 import { HERO_CLASSES, MAX_PARTY_SIZE } from './config/heroClasses.js';
+import { HealthBar } from './fx/HealthBar.js';
+import { ProjectileManager } from './fx/Projectile.js';
 
 const app = new PIXI.Application({
   resizeTo: document.getElementById('game-root'),
@@ -26,10 +28,17 @@ const SPRITE_PATHS = {
 };
 
 const SPRITE_SCALE = 0.4; // 96px source -> ~38px, fits the 48px-tall strip
+const SPRITE_SOURCE_SIZE = 96; // all hero/enemy sprite source PNGs are 96x96
 const HERO_BASE_X = 20;
 const HERO_SLOT_SPACING = 34; // px between heroes, matches enemy slot spacing
 const ENEMY_SLOT_SPACING = 34; // px between enemies in a wave, matches hero spacing
 const DEATH_FADE_DURATION = 0.3; // seconds for a defeated enemy to fade out
+
+// Sprites are bottom-anchored at sprite.y - this finds the visual top edge,
+// which is where a health bar should sit just above.
+function spriteTopY(entry) {
+  return entry.sprite.y - SPRITE_SOURCE_SIZE * entry.baseScale;
+}
 
 function makeHeroSprite(hero) {
   const sprite = PIXI.Sprite.from(SPRITE_PATHS[hero.classId] ?? SPRITE_PATHS.knight);
@@ -72,6 +81,7 @@ async function main() {
     sprite.y = groundY;
     app.stage.addChild(sprite);
     const entry = { hero, sprite, baseScale: SPRITE_SCALE, baseTint: 0xffffff, hitTimer: 0, baseX };
+    entry.healthBar = new HealthBar(app.stage);
     heroSprites.push(entry);
     return entry;
   }
@@ -87,6 +97,7 @@ async function main() {
   }
 
   const floatingText = new FloatingTextManager(app.stage);
+  const projectiles = new ProjectileManager(app.stage);
   const sound = new SoundManager(0.4);
 
   // Small clickable icon that opens the inventory popup. Sits top-left,
@@ -181,27 +192,39 @@ async function main() {
     window.taskbarHero.sendInventorySync(serializeForInventory());
   });
 
-  // --- Game feedback (lunge animation, damage numbers, hit flash, sound) ---
+  // --- Game feedback (lunge/projectile animation, damage numbers, hit flash, sound) ---
   // ProgressionSystem forwards each raw event here as it happens. For attacks,
-  // we don't fire damage numbers/flash/sound immediately - instead we kick
-  // off a lunge (dash toward the target and back) and let its impact
-  // callback fire the feedback right as the sprite "reaches" its target, so
-  // the numbers land in sync with the swing instead of popping instantly.
+  // we don't fire damage numbers/flash/sound immediately - instead melee
+  // attackers kick off a lunge (dash toward the target and back) and ranged
+  // attackers (Ranger hero, Archer enemy role) fire a projectile; either way
+  // an arrival/impact callback fires the feedback right as it "lands", so
+  // the numbers sync with the swing/hit instead of popping instantly.
   function onGameEvent(event) {
     if (event.type === 'hero-attack') {
       const attacker = heroSprites.find(({ hero }) => hero.id === event.source);
       const targetEntry = findEnemyEntry(event.targetEnemyId);
       if (!attacker || !targetEntry) return;
 
-      startLunge(attacker, +1, () => {
+      const onImpact = () => {
         // The target may have died and been cleaned up (or a whole new wave
-        // may have spawned) in the ~0.1s between the hit resolving and the
-        // lunge's impact frame - if so, its sprite is already destroyed.
+        // may have spawned) in the gap between the hit resolving and the
+        // attack's impact frame - if so, its sprite is already destroyed.
         if (!enemyEntries.includes(targetEntry)) return;
         floatingText.spawn(targetEntry.sprite.x, targetEntry.sprite.y - 30, `-${event.amount}`, 0xffcc66);
         triggerHitFlash(targetEntry);
         sound.play('hit-dealt');
-      });
+      };
+
+      if (attacker.hero.classId === 'ranger') {
+        projectiles.spawn(
+          attacker.sprite.x, attacker.sprite.y - 18,
+          targetEntry.sprite.x, targetEntry.sprite.y - 18,
+          0xd9b877, // wooden-arrow tan
+          onImpact
+        );
+      } else {
+        startLunge(attacker, +1, onImpact);
+      }
       return;
     }
 
@@ -210,12 +233,28 @@ async function main() {
       const target = heroSprites.find(({ hero }) => hero.id === event.target);
       if (!attackerEntry || !target) return;
 
-      startLunge(attackerEntry, -1, () => {
-        if (!enemyEntries.includes(attackerEntry)) return;
+      const onImpact = () => {
         floatingText.spawn(target.sprite.x, target.sprite.y - 30, `-${event.amount}`, 0xff5f5f);
         triggerHitFlash(target);
         sound.play('hit-taken');
-      });
+      };
+
+      if (attackerEntry.role === 'archer') {
+        // Projectiles don't hold a live reference to the attacker's sprite
+        // after spawning (just its position at that instant), so there's no
+        // dangling-sprite risk here even if the archer dies mid-flight.
+        projectiles.spawn(
+          attackerEntry.sprite.x, attackerEntry.sprite.y - 18,
+          target.sprite.x, target.sprite.y - 18,
+          0xb98bff, // magic-bolt purple, matches the loot/rare accent color
+          onImpact
+        );
+      } else {
+        startLunge(attackerEntry, -1, () => {
+          if (!enemyEntries.includes(attackerEntry)) return;
+          onImpact();
+        });
+      }
       return;
     }
 
@@ -224,6 +263,7 @@ async function main() {
       if (entry && !entry.dying) {
         entry.dying = true;
         entry.deathTimer = 0;
+        entry.healthBar.container.visible = false;
       }
       return;
     }
@@ -260,6 +300,7 @@ async function main() {
       enemyEntries.forEach((entry) => {
         app.stage.removeChild(entry.sprite);
         entry.sprite.destroy();
+        entry.healthBar.destroy();
       });
       enemyEntries = [];
 
@@ -275,12 +316,14 @@ async function main() {
         const entry = {
           enemyId: enemy.id,
           sprite,
+          role: enemy.role, // needed to decide melee lunge vs ranged projectile on attack
           baseScale: SPRITE_SCALE * (isBoss ? 1.35 : 1),
           baseTint: isBoss ? 0xff5555 : 0xffffff,
           hitTimer: 0,
           baseX,
           dying: false,
         };
+        entry.healthBar = new HealthBar(app.stage);
 
         // Slide in from off-screen right, staggered slightly per slot so a
         // multi-enemy wave doesn't arrive as one indistinguishable clump.
@@ -308,12 +351,16 @@ async function main() {
       onEvent: onGameEvent,
     });
 
-    // Sync hero sprite opacity to hp% as a cheap "damaged" visual cue
-    heroSprites.forEach(({ hero, sprite }) => {
+    // Sync hero sprite opacity to hp% as a cheap "damaged" visual cue, and
+    // update each hero's health bar to match.
+    heroSprites.forEach((entry) => {
+      const { hero, sprite } = entry;
       sprite.alpha = hero.isAlive() ? Math.max(0.3, hero.hp / hero.maxHp) : 0.15;
+      entry.healthBar.update(hero.hp / hero.maxHp, sprite.x, spriteTopY(entry));
     });
 
     background.update(dt);
+    projectiles.update(dt);
 
     // Animate floating damage/heal numbers and hero hit-flash/lunge
     floatingText.update(dt);
@@ -336,6 +383,7 @@ async function main() {
         if (t >= 1) {
           app.stage.removeChild(entry.sprite);
           entry.sprite.destroy();
+          entry.healthBar.destroy();
           enemyEntries.splice(i, 1);
         }
         continue;
@@ -350,13 +398,17 @@ async function main() {
           entry.sprite.x = spawn.fromX + (spawn.toX - spawn.fromX) * eased;
           if (t >= 1) entry.spawnAnim = null;
         }
-        continue;
+        // Health bar still tracks along during the slide-in - falls through
+        // to the hp-sync below rather than an early continue.
       }
 
       const enemy = gameState.enemies.find((e) => e.id === entry.enemyId);
-      if (enemy) entry.sprite.alpha = Math.max(0.2, enemy.hp / enemy.maxHp);
+      if (enemy) {
+        entry.sprite.alpha = Math.max(0.2, enemy.hp / enemy.maxHp);
+        entry.healthBar.update(enemy.hp / enemy.maxHp, entry.sprite.x, spriteTopY(entry));
+      }
       updateHitFlash(entry, dt);
-      updateLunge(entry, dt);
+      if (!entry.spawnAnim) updateLunge(entry, dt);
     }
   });
 }

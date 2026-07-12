@@ -51,6 +51,9 @@ src/
     SoundManager.js           Preloads and plays short one-shot SFX clips
     MeleeAnim.js               Lunge-toward-target-and-back animation, fires an
                                impact callback (damage/flash/sound) at the hit frame
+    Projectile.js               Ranged-attack bolt that travels attacker->target,
+                               fires an arrival callback (same role as MeleeAnim's impact)
+    HealthBar.js                Small color-graded hp bar that tracks above a sprite
     Background.js              Scrolling parallax hills + ground ticks, boss-proximity
                                tint, and a speed-burst pulse on stage transitions
 
@@ -172,13 +175,41 @@ entry onto `heroSprites`. Party size is capped at `MAX_PARTY_SIZE` (4) so the
 formation doesn't outgrow the strip's ~360px width even alongside a max-size
 enemy wave.
 
+### Projectiles and health bars
+
+Not every attack should look the same - a Ranger swinging a melee lunge
+looked wrong given the sprite is holding a bow. `onGameEvent`'s attack
+handlers now branch: if the attacking hero's `classId === 'ranger'` or the
+attacking enemy's `role === 'archer'`, it calls `projectiles.spawn()` instead
+of `startLunge()`. `ProjectileManager` is deliberately simpler than
+`MeleeAnim` - it's a straight-line travel from attacker to target with a
+single arrival callback, no impact-fraction envelope needed since the whole
+animation *is* the travel. It's also safer by construction: it copies the
+attacker's position once at spawn time rather than holding a live reference
+to their sprite, so an attacker dying mid-flight can't leave a dangling
+reference the way a lunge target could (see the note above about that bug) -
+only the *target* side still needs the `enemyEntries.includes(...)` guard.
+
+**Health bars** (`HealthBar.js`) are a small standalone display object per
+hero/enemy entry - a dark track plus a color-graded fill that lerps
+green→yellow→red as hp drops. Each entry owns one and is responsible for its
+lifecycle: heroes create theirs once in `addHeroEntry` (heroes are never
+removed), enemies create theirs in the `wave-spawned` handler and destroy it
+wherever the sprite itself gets destroyed (death-fade completion, and the
+defensive wave-transition cleanup). The bar tracks `entry.sprite.x` every
+frame, so it follows lunges and enemy spawn slide-ins automatically without
+any special-casing - it just reads wherever the sprite currently is. One
+deliberate clamp: a boss's scaled-up sprite can visually poke above the
+strip's own 48px height, so the bar's y-position is clamped to never go
+above y=1, keeping it visible even when its sprite doesn't fully fit.
+
 ## Next steps to build this out further
 
 Full checklist lives in `ROADMAP.md`. With waves, formations, multiple
-heroes, and recruiting all working, reasonable next moves: giving enemy
-roles distinct sprites instead of the same reskinned slime, a 4th hero class
-(there's nothing left to recruit after Ranger + Priest), or Phase 2 (swap in
-your own art).
+heroes, recruiting, projectiles, and health bars all working, reasonable
+next moves: giving enemy roles distinct sprites instead of the same
+reskinned slime, a 4th hero class (there's nothing left to recruit after
+Ranger + Priest), or Phase 2 (swap in your own art).
 
 ## Known rough edges (intentional, for a prototype)
 
@@ -188,6 +219,12 @@ your own art).
   only stats differ. Distinct art per role would help readability a lot.
 - Only two heroes are recruitable (Ranger, Priest) before you run out of
   classes - a 4th class would give the recruit UI more room to matter.
+- Projectiles are a plain colored dot, not an actual arrow/bolt sprite or
+  rotated-to-face-direction graphic - fine as a placeholder, would benefit
+  from real art like everything else.
+- Ranged attackers don't have any attack-side animation (no bow-draw, no
+  recoil) - they stay static while the projectile does all the work. A
+  small draw/release animation would be a nice follow-up.
 - No mute/volume UI yet — `SoundManager` supports `setMuted()`/`setVolume()`
   but nothing in the UI calls them. Worth adding once you build the settings
   panel (Phase 5).
