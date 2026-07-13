@@ -1,8 +1,10 @@
 // Resolves one tick of auto-battle between a party and a wave (array) of enemies.
 // Heroes always attack the front-most LIVING enemy (lowest index in the
 // array) - that's the formation order: tank up front, then brawler, then
-// archer safely in back until everything ahead of it is dead. Enemies each
-// act independently and retaliate against a random living hero.
+// archer safely in back until everything ahead of it is dead. Enemies mirror
+// this on the hero side: they always attack a front-line (melee) hero if any
+// are alive, and only reach back-line (ranged/support) heroes once every
+// front-line hero is dead - see Hero.formationLine.
 export class CombatSystem {
   /**
    * @param {import('../entities/Hero.js').Hero[]} party
@@ -44,10 +46,16 @@ export class CombatSystem {
       if (!enemy.isAlive()) continue;
       if (!enemy.tick(deltaSeconds)) continue;
 
-      const aliveHeroes = party.filter((h) => h.isAlive());
-      if (aliveHeroes.length === 0) continue;
+      // Re-evaluate per enemy turn, same reasoning as the front-enemy lookup
+      // above - if an earlier enemy this tick just killed the last front-line
+      // hero, this enemy should already see the back line as attackable.
+      const frontLine = party.filter((h) => h.isAlive() && h.formationLine === 'front');
+      const priorityGroup = frontLine.length > 0
+        ? frontLine
+        : party.filter((h) => h.isAlive() && h.formationLine === 'back');
+      if (priorityGroup.length === 0) continue;
 
-      const target = aliveHeroes[Math.floor(Math.random() * aliveHeroes.length)];
+      const target = priorityGroup[Math.floor(Math.random() * priorityGroup.length)];
       const dmg = target.takeDamage(enemy.atk);
       events.push({ type: 'enemy-attack', source: enemy.id, target: target.id, amount: dmg });
     }

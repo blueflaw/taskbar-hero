@@ -29,9 +29,14 @@ const SPRITE_PATHS = {
 
 const SPRITE_SCALE = 0.4; // 96px source -> ~38px, fits the 48px-tall strip
 const SPRITE_SOURCE_SIZE = 96; // all hero/enemy sprite source PNGs are 96x96
-const HERO_BASE_X = 20;
-const HERO_SLOT_SPACING = 34; // px between heroes, matches enemy slot spacing
-const ENEMY_SLOT_SPACING = 34; // px between enemies in a wave, matches hero spacing
+// Back line (ranged/support) keeps the strip's original left-side position.
+// Front line (melee) stands further right, closer to the enemies - visually
+// "in combat" with them - while the back line stays safely behind.
+const BACK_BASE_X = 20;
+const BACK_SLOT_SPACING = 30;
+const FRONT_BASE_X = 130;
+const FRONT_SLOT_SPACING = 30;
+const ENEMY_SLOT_SPACING = 34; // px between enemies in a wave
 const DEATH_FADE_DURATION = 0.3; // seconds for a defeated enemy to fade out
 
 // Sprites are bottom-anchored at sprite.y - this finds the visual top edge,
@@ -74,9 +79,15 @@ async function main() {
 
   const heroSprites = [];
 
-  function addHeroEntry(hero, index) {
+  function addHeroEntry(hero) {
     const sprite = makeHeroSprite(hero);
-    const baseX = HERO_BASE_X + index * HERO_SLOT_SPACING;
+    // Index within this hero's OWN formation group (front or back), not the
+    // party as a whole - so recruiting a back-line hero never shifts
+    // existing front-line positions and vice versa.
+    const groupIndex = heroSprites.filter((e) => e.hero.formationLine === hero.formationLine).length;
+    const baseX = hero.formationLine === 'front'
+      ? FRONT_BASE_X + groupIndex * FRONT_SLOT_SPACING
+      : BACK_BASE_X + groupIndex * BACK_SLOT_SPACING;
     sprite.x = baseX;
     sprite.y = groundY;
     app.stage.addChild(sprite);
@@ -86,7 +97,7 @@ async function main() {
     return entry;
   }
 
-  gameState.party.forEach((hero, i) => addHeroEntry(hero, i));
+  gameState.party.forEach((hero) => addHeroEntry(hero));
 
   // Enemy entries are built dynamically as waves spawn (see the
   // 'wave-spawned' event below) - there's no fixed enemy count anymore.
@@ -184,9 +195,9 @@ async function main() {
     gameState.addHero(classId);
 
     // The new Hero was appended to gameState.party - mirror that with a new
-    // sprite entry at the next slot. addHeroEntry only needs the index.
+    // sprite entry. addHeroEntry figures out its formation-group slot itself.
     const newHero = gameState.party[gameState.party.length - 1];
-    addHeroEntry(newHero, gameState.party.length - 1);
+    addHeroEntry(newHero);
 
     SaveManager.save(gameState);
     window.taskbarHero.sendInventorySync(serializeForInventory());

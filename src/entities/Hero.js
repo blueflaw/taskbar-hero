@@ -11,6 +11,7 @@ export class Hero {
     this.classId = classId;
     this.label = def.label;
     this.role = def.role;
+    this.formationLine = def.formationLine ?? 'back'; // front = melee, engaged first; back = ranged/support
     this.level = level;
     this.xp = 0;
 

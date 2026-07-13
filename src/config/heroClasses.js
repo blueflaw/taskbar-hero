@@ -2,6 +2,10 @@
 // Keep this data-driven so adding a class never touches game logic.
 // recruitCost is in gold - 0 means "starting hero, not recruitable" (knight
 // begins in the party by default; see GameState).
+// formationLine: 'front' classes stand near the enemies and are what enemies
+// attack first (mirrors how enemies themselves have a tank/brawler/archer
+// formation) - 'back' classes (ranged, support) only become attackable once
+// every front-line hero is dead.
 export const HERO_CLASSES = {
   knight: {
     label: 'Knight',
@@ -10,6 +14,7 @@ export const HERO_CLASSES = {
     baseDef: 8,
     attackSpeed: 1.0, // attacks per second
     role: 'tank',
+    formationLine: 'front',
     recruitCost: 0,
   },
   ranger: {
@@ -19,6 +24,7 @@ export const HERO_CLASSES = {
     baseDef: 2,
     attackSpeed: 1.6,
     role: 'dps',
+    formationLine: 'back',
     recruitCost: 60,
   },
   priest: {
@@ -29,6 +35,7 @@ export const HERO_CLASSES = {
     attackSpeed: 0.8,
     role: 'support',
     healPerSecond: 4,
+    formationLine: 'back',
     recruitCost: 120,
   },
 };
