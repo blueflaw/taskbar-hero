@@ -32,12 +32,23 @@ things inside a phase — the phase order matters more than the item order.
   small color-graded hp bar (green → yellow → red) that tracks above their
   sprite, including through lunges and enemy slide-ins. Lives in
   `src/fx/Projectile.js` and `src/fx/HealthBar.js`.
+- [x] **Hero formation lines** — heroes now split into front (melee, e.g.
+  Knight) and back (ranged/support, e.g. Ranger/Priest) via
+  `Hero.formationLine`. Front-line heroes render further right, closer to
+  the enemies; back-line heroes stay at the strip's original left position.
+  Enemies always attack a living front-line hero if one exists, and only
+  reach the back line once every front-line hero is dead - mirrors the
+  enemy-side tank/brawler/archer formation, just on the hero side. Lives in
+  `config/heroClasses.js` (the `formationLine` field) and
+  `CombatSystem`'s enemy-targeting logic.
 - [ ] **Next up is your call** — see "possible next steps" below.
 
-*(Possible next steps: give enemy roles distinct sprites instead of the
-same slime reskinned; swap in real hero art now that the animation/wave/
-recruit systems are in place (Phase 2); a 4th hero class so there's
-something left to recruit after Ranger + Priest.)*
+*(Possible next steps: a 4th hero class so there's something left to recruit
+after Ranger + Priest, and to give the front line more than one melee option;
+real arrow/bolt sprites instead of plain colored dots for projectiles; a
+small draw/recoil animation for ranged attackers instead of staying static
+while the projectile does the work; enemy roles could get distinct sprites
+too, following the same pattern.)*
 
 ---
 
@@ -65,10 +76,9 @@ Goal: a taskbar companion that feels good to glance at, even with placeholder ar
 Goal: replace every placeholder with real assets — this is where your
 illustration skills take over from mine.
 
-- [ ] Final hero sprite sheets (idle + attack frames minimum) per class
-- [ ] Enemy sprite variety (3-5 enemy types per stage tier, not just one slime)
-- [ ] Simple hit-flash / attack animation (swap `PIXI.Sprite` for
-      `PIXI.AnimatedSprite`)
+- [x] Basic hero/enemy sprite swap (done on your end - static images replacing the Python-generated placeholders)
+- [ ] Idle + attack animation frames per class (currently a single static image per hero/enemy - swap `PIXI.Sprite` for `PIXI.AnimatedSprite` with a spritesheet when ready)
+- [ ] Enemy sprite variety (3-5 enemy types per stage tier + per formation role, not just one image)
 - [ ] Icon art for loot items (even simple colored gem/weapon icons help a lot)
 - [ ] A small logo/wordmark for the inventory popup header
 

@@ -14,7 +14,7 @@ npm start
 ```
 
 You should see a small strip window dock itself to the bottom-right of your
-screen (near the system tray), with placeholder pixel-art heroes auto-battling
+screen (near the system tray), with pixel-art heroes auto-battling
 an enemy, plus a new icon in your system tray. It's click-through by default
 so it won't get in your way, and becomes clickable when your mouse hovers
 over it. Click the small bag icon (top-left of the strip) or use the tray
@@ -85,7 +85,8 @@ src/
     waveConfig.js            BOSS_INTERVAL and wave-size-per-stage scaling
 
   assets/
-    hero-*.png, enemy-*.png  Placeholder sprites - swap with your own art
+    hero-*.png, enemy-*.png  Hero/enemy sprites (originally generated
+                             placeholders - now your own art)
     sfx/*.wav                 Synthesized placeholder SFX - swap with real sound design
 ```
 
@@ -203,13 +204,36 @@ deliberate clamp: a boss's scaled-up sprite can visually poke above the
 strip's own 48px height, so the bar's y-position is clamped to never go
 above y=1, keeping it visible even when its sprite doesn't fully fit.
 
+### Hero formation lines
+
+Enemies already had a front-to-back formation (tank/brawler/archer); heroes
+didn't - every enemy just picked a random living hero to attack, so a
+fragile ranger could get focused down before the knight took a single hit.
+`Hero.formationLine` (`'front'` or `'back'`, set per class in
+`heroClasses.js`) fixes that symmetrically: Knight is `'front'`, Ranger and
+Priest are `'back'`. In `CombatSystem`, an attacking enemy always picks a
+random *living front-line* hero if one exists, and only falls back to the
+back line once every front-line hero is dead - re-evaluated per enemy turn
+(not cached once per tick) for the same reason the enemy-targeting lookup
+is: if an earlier enemy this same tick just killed the last front-line hero,
+the next enemy should immediately see the back line as fair game.
+
+On the rendering side, `addHeroEntry` positions a hero using an index
+*within its own formation group*, not the party as a whole - front-line
+heroes lay out from `FRONT_BASE_X` (130, closer to the enemies), back-line
+heroes stay at `BACK_BASE_X` (20, the strip's original left edge). Recruiting
+a new hero just needs `heroSprites.filter(sameFormationLine).length` for its
+slot index, so existing heroes never need to be repositioned when the party
+grows - each formation group is independently indexed.
+
 ## Next steps to build this out further
 
-Full checklist lives in `ROADMAP.md`. With waves, formations, multiple
-heroes, recruiting, projectiles, and health bars all working, reasonable
-next moves: giving enemy roles distinct sprites instead of the same
-reskinned slime, a 4th hero class (there's nothing left to recruit after
-Ranger + Priest), or Phase 2 (swap in your own art).
+Full checklist lives in `ROADMAP.md`. With waves, formations (on both the
+enemy and hero side), recruiting, projectiles, and health bars all working,
+reasonable next moves: a 4th hero class (there's nothing left to recruit
+after Ranger + Priest, and the front line only has one melee option), real
+arrow/bolt sprites for projectiles instead of colored dots, or a small
+draw/recoil animation for ranged attackers.
 
 ## Known rough edges (intentional, for a prototype)
 
@@ -218,7 +242,8 @@ Ranger + Priest), or Phase 2 (swap in your own art).
 - All enemy roles (tank/brawler/archer) currently share the same sprite -
   only stats differ. Distinct art per role would help readability a lot.
 - Only two heroes are recruitable (Ranger, Priest) before you run out of
-  classes - a 4th class would give the recruit UI more room to matter.
+  classes - a 4th class would give the recruit UI more room to matter, and
+  give the front line a second melee option.
 - Projectiles are a plain colored dot, not an actual arrow/bolt sprite or
   rotated-to-face-direction graphic - fine as a placeholder, would benefit
   from real art like everything else.
