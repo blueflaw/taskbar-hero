@@ -42,6 +42,8 @@ things inside a phase — the phase order matters more than the item order.
   `config/heroClasses.js` (the `formationLine` field) and
   `CombatSystem`'s enemy-targeting logic.
 - [ ] **Next up is your call** — see "possible next steps" below.
+- [ ] **Next up is** fixing mele attack animation they need to colide to make the hero swing the sword. mele should not have distance between mele monsters and mele heroes. 
+- [ ] **Next up is** adding attack animation and walk animation.
 
 *(Possible next steps: a 4th hero class so there's something left to recruit
 after Ranger + Priest, and to give the front line more than one melee option;
