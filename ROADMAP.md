@@ -81,6 +81,7 @@ Goal: replace every placeholder with real assets — this is where your
 illustration skills take over from mine.
 
 - [x] Basic hero/enemy sprite swap (done on your end - static images replacing the Python-generated placeholders)
+- [ ] generate all assets temps to let the artist what needs to be created.
 - [ ] Idle + attack animation frames per class (currently a single static image per hero/enemy - swap `PIXI.Sprite` for `PIXI.AnimatedSprite` with a spritesheet when ready)
 - [ ] Enemy sprite variety (3-5 enemy types per stage tier + per formation role, not just one image)
 - [ ] Icon art for loot items (even simple colored gem/weapon icons help a lot)
@@ -98,9 +99,10 @@ Goal: give players (including future-you) reasons to keep the game running for w
   stats/attack pattern (currently just a reskinned normal enemy) and a
   guaranteed rare+ drop.
 - [ ] Equipment sets / set bonuses (e.g. "2pc Knight Set: +10% HP")
-- [ ] Crafting or item upgrade system (combine 3 commons → 1 uncommon)
+- [ ] Crafting or item upgrade system (combine 3 commons → 1 uncommon randomize grade quality)
 - [ ] A second currency (gems) from bosses, spent on cosmetic-only stuff first —
       keeps monetization-adjacent design honest before you add anything real
+  [ ] add info section for lore, item quality, hero background etc...
 
 ---
 
@@ -114,6 +116,15 @@ idle toy from an idle *game*.
 - [ ] Daily login reward (simple streak counter is enough to start)
 - [ ] Achievements list (even a static local list with checkmarks is good UX)
 - [ ] Pet/companion system (passive bonus, unlockable) — good scope for a v2
+- [ ] Aclchemy system ( distroys items, resources for gold )
+- [ ] synthesis:  [mix 9 items to create 1 higher grade items]
+- [ ] crafting: craft items [main weapons, 2ndary weapon, helmet, armor, gloves, bots, accessories(amulet, earing, ring, bracer)]
+- [ ] decoration: add decoration to items, e.g add attackspeed jadestone to weapon.
+- [ ] engraving: add engraving to items, e.g add goblin hide to armor.
+- [ ] Inscription add special stats to equipment. materials equipement with an inscription slot.
+- [ ] removal: removes stats applied to equipment.
+      *Materials used to grant stats will not be returned.
+- [ ] Offering: offer coins to obtain random items.
 
 ---
 
