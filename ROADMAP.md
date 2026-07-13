@@ -52,6 +52,8 @@ small draw/recoil animation for ranged attackers instead of staying static
 while the projectile does the work; enemy roles could get distinct sprites
 too, following the same pattern.)*
 
+*lets build the world 1st before adding another hero class*
+
 ---
 
 ## Phase 1 — MVP Polish
