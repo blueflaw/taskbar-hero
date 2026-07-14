@@ -59,6 +59,8 @@ src/
                                enemy death (cosmetic only, not the gold ledger)
     Projectile.js               Ranged-attack bolt that travels attacker->target,
                                fires an arrival callback (same role as MeleeAnim's impact)
+    RangedAttackAnim.js         Draw-back-then-release x-offset for Ranger/Archer -
+                               onRelease is where the projectile actually launches
     HealthBar.js                Small color-graded hp bar that tracks above a sprite
     Background.js              Scrolling parallax hills + ground ticks, boss-proximity
                                tint, and a speed-burst pulse on stage transitions
@@ -141,8 +143,37 @@ decides a melee hit lands, `game.js` checks whether the attacker is already
 The damage number, hit-flash, sound, and a small impact-spark burst
 (`ImpactSpark.js`) don't fire at the moment the attack was decided; they fire
 from an `onImpact`/arrival callback so the feedback lines up with the actual
-"contact" frame. Ranged attackers (Ranger, Archer role) skip all of this
-entirely and fire a `Projectile` instead - see below.
+"contact" frame. Ranged attackers (Ranger, Archer role) skip the
+travel/collision part of this entirely - they never move formation position -
+but they get their own equivalent flourish, described next.
+
+### Ranged attacker draw and recoil
+
+Ranger and Archer don't lunge or travel anywhere - they stay at their
+formation slot - so without something extra they'd just stand still while
+their projectile does all the work. `RangedAttackAnim.js` gives them a
+small "draw back, then release" motion instead: `startDrawAndRelease()`
+pulls the sprite ~5px away from its target over ~0.12s (`DRAW_PULL`,
+`DRAW_DURATION`), then sweeps it forward through neutral to a small
+overshoot before settling (`RECOIL_OVERSHOOT`, `RECOIL_DURATION`). This is
+a pure x-offset applied on top of whatever `updateTravel` already set that
+frame - deliberately no scale change, since `HitFlash` already owns
+scale-punch and the two would fight over the same property if both fired
+in the same frame.
+
+The shot itself is wired to the *release*, not the original attack
+decision: `onRelease` is where `game.js` actually calls `projectiles.spawn()`,
+so the arrow/bolt visually leaves right as the bow snaps forward instead of
+popping into existence the instant the attack resolves. That introduces a
+small new edge case worth knowing about - since there's now a ~0.12s gap
+between "attack decided" and "arrow launched," the target could die in that
+window (from a different hero attacking it) before the shot even fires. The
+ranger's release callback guards against this the same way the impact
+callback already did (`enemyEntries.includes(targetEntry)`); the archer
+doesn't need the equivalent check since its target is a hero, which is
+never destroyed - and if the archer itself dies mid-draw, the ticker's
+existing death-fade branch simply stops calling `updateRangedAnim` for it,
+so `onRelease` never fires and the shot silently never happens, no crash.
 
 Enemy deaths also pop a small 3-coin gold burst (`CoinBurst.js`) that arcs
 outward and fades - purely cosmetic feedback tied to the `enemy-killed`
@@ -260,11 +291,12 @@ grows - each formation group is independently indexed.
 
 Full checklist lives in `ROADMAP.md`. With waves, formations (on both the
 enemy and hero side), recruiting, projectiles, health bars, real melee
-collision, and engage-and-hold all working, reasonable next moves: a 4th
-hero class (there's nothing left to recruit after Ranger + Priest, and the
-front line only has one melee option), real arrow/bolt sprites for
-projectiles instead of colored dots, or a small draw/recoil animation for
-ranged attackers.
+collision, engage-and-hold, and ranged draw/recoil all working, reasonable
+next moves: boss unique mechanics (right now they're just a bigger reskin -
+the background's tension-building tint doesn't pay off with anything
+mechanically different yet), a 4th hero class (there's nothing left to
+recruit after Ranger + Priest, and the front line only has one melee
+option), or real arrow/bolt sprites for projectiles instead of colored dots.
 
 ## Known rough edges (intentional, for a prototype)
 
@@ -278,9 +310,6 @@ ranged attackers.
 - Projectiles are a plain colored dot, not an actual arrow/bolt sprite or
   rotated-to-face-direction graphic - fine as a placeholder, would benefit
   from real art like everything else.
-- Ranged attackers don't have any attack-side animation (no bow-draw, no
-  recoil) - they stay static while the projectile does all the work. A
-  small draw/release animation would be a nice follow-up.
 - `COLLISION_GAP` (16px) in `game.js` was tuned by eye against your current
   sprite sizes - if you swap in noticeably bigger or smaller art, this is
   the one constant to revisit so attacks still look like they connect.

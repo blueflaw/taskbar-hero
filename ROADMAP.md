@@ -20,18 +20,20 @@ quick-scan history, not the deep dive.)*
 - [x] Projectile animation + health bars (ranged attackers fire bolts; every unit has an hp bar)
 - [x] Hero formation lines (front-line melee protects back-line ranged/support, mirrors enemy formation)
 - [x] Melee collision (attackers travel to a real collision point near their target instead of a token hop)
-- [x] **Engage-and-hold + coin burst** — melee units (heroes and enemies)
-  now travel to their target ONCE and hold that position for as long as
-  they keep fighting it, instead of resetting to their formation slot
-  between every single swing. They only move again when the target changes
-  (it died, so combat moves to the next enemy in line) or when the fight
-  ends entirely (new wave spawns → heroes return to formation). A quick
-  punch-flash on the attacker itself (reusing `HitFlash`) gives per-swing
-  feedback while stationary. Enemy deaths now also pop a small 3-coin gold
-  burst (`CoinBurst.js`) that arcs and fades. `MeleeAnim.js`'s API changed
-  from `startLunge`/`updateLunge` (round-trip) to `travelTo`/`updateTravel`
-  (one-way, holds at the destination) - `game.js` tracks each entry's
-  `engagedTargetId` to know whether to travel or just swing in place.
+- [x] Engage-and-hold + coin burst (melee units travel to their target once and hold, instead of resetting every swing; enemy deaths pop a small gold burst)
+- [x] **Ranged attacker draw/recoil animation** — Ranger and Archer no
+  longer stand perfectly static while their projectile does the work. A
+  quick draw-back (~5px, away from the target) plays first, then a
+  snap-through-neutral recoil with a small forward overshoot before
+  settling. The shot doesn't fire the instant the attack is decided
+  anymore - it launches at the draw→recoil transition, so the arrow/bolt
+  visually leaves as the bow snaps forward. Purely a position offset (no
+  scale changes, to avoid fighting with `HitFlash`'s own scale-punch), so it
+  layers cleanly on top of `updateTravel`. Lives in
+  `src/fx/RangedAttackAnim.js`. One new edge case handled: since the shot
+  now launches ~0.12s after the attack is decided instead of instantly, the
+  target could die in that window (from a different hero) before the arrow
+  even leaves - guarded the same way the impact callback already was.
 - [ ] **Next up is your call** — see "possible next steps" below.
 
 **Working split going forward:** code/animation/systems work stays with
@@ -42,12 +44,12 @@ against whatever's currently in `src/assets/`. Flag here whenever you push
 new art or an idea so the roadmap stays the shared source of truth for both
 of us.
 
-*(Possible next steps: a 4th hero class so there's something left to recruit
-after Ranger + Priest, and so the front line has a second melee option; real
-arrow/bolt sprites instead of plain colored dots for projectiles; a small
-draw/recoil animation for ranged attackers instead of staying static while
-the projectile does the work; enemy roles could get distinct sprites too,
-following the same pattern.)*
+*(Possible next steps: boss unique mechanics so the tension-building
+buildup actually pays off with something other than a bigger reskin; a 4th
+hero class so there's something left to recruit after Ranger + Priest, and
+so the front line has a second melee option; real arrow/bolt sprites
+instead of plain colored dots for projectiles; enemy roles could get
+distinct sprites too, following the same pattern; a mute/volume settings UI.)*
 
 ---
 

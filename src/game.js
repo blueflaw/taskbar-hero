@@ -5,6 +5,7 @@ import { FloatingTextManager } from './fx/FloatingTextManager.js';
 import { triggerHitFlash, updateHitFlash } from './fx/HitFlash.js';
 import { SoundManager } from './fx/SoundManager.js';
 import { travelTo, updateTravel } from './fx/MeleeAnim.js';
+import { startDrawAndRelease, updateRangedAnim } from './fx/RangedAttackAnim.js';
 import { CoinBurstManager } from './fx/CoinBurst.js';
 import { Background } from './fx/Background.js';
 import { HERO_CLASSES, MAX_PARTY_SIZE } from './config/heroClasses.js';
@@ -237,12 +238,21 @@ async function main() {
       };
 
       if (attacker.hero.classId === 'ranger') {
-        projectiles.spawn(
-          attacker.sprite.x, attacker.sprite.y - 18,
-          targetEntry.sprite.x, targetEntry.sprite.y - 18,
-          0xd9b877, // wooden-arrow tan
-          onImpact
-        );
+        // The shot doesn't fire immediately - it launches at the moment the
+        // draw animation releases, so the arrow visually leaves as the bow
+        // snaps forward instead of popping into existence instantly.
+        startDrawAndRelease(attacker, +1, () => {
+          // The target may have died during the draw itself (a different
+          // hero could kill it in that ~0.12s window) - guard the same way
+          // the impact callback already does, just earlier.
+          if (!enemyEntries.includes(targetEntry)) return;
+          projectiles.spawn(
+            attacker.sprite.x, attacker.sprite.y - 18,
+            targetEntry.sprite.x, targetEntry.sprite.y - 18,
+            0xd9b877, // wooden-arrow tan
+            onImpact
+          );
+        });
       } else if (attacker.engagedTargetId === event.targetEnemyId) {
         // Already standing at this enemy from a previous swing - no need to
         // travel again, just land the hit in place.
@@ -274,15 +284,20 @@ async function main() {
       };
 
       if (attackerEntry.role === 'archer') {
-        // Projectiles don't hold a live reference to the attacker's sprite
-        // after spawning (just its position at that instant), so there's no
-        // dangling-sprite risk here even if the archer dies mid-flight.
-        projectiles.spawn(
-          attackerEntry.sprite.x, attackerEntry.sprite.y - 18,
-          target.sprite.x, target.sprite.y - 18,
-          0xb98bff, // magic-bolt purple, matches the loot/rare accent color
-          onImpact
-        );
+        // Same draw-then-release timing as the ranger. Projectiles don't
+        // hold a live reference to the attacker's sprite after spawning
+        // (just its position at that instant), and if the archer itself
+        // dies mid-draw the ticker's dying-branch stops calling
+        // updateRangedAnim for it, so onRelease simply never fires -
+        // no dangling-sprite risk either way.
+        startDrawAndRelease(attackerEntry, -1, () => {
+          projectiles.spawn(
+            attackerEntry.sprite.x, attackerEntry.sprite.y - 18,
+            target.sprite.x, target.sprite.y - 18,
+            0xb98bff, // magic-bolt purple, matches the loot/rare accent color
+            onImpact
+          );
+        });
       } else if (attackerEntry.engagedTargetId === event.target) {
         // Already standing at this hero from a previous swing.
         onImpact();
@@ -424,6 +439,7 @@ async function main() {
     heroSprites.forEach((entry) => {
       updateHitFlash(entry, dt);
       updateTravel(entry, dt);
+      updateRangedAnim(entry, dt);
     });
 
     // Each enemy entry is in exactly one of three states this frame:
@@ -465,7 +481,10 @@ async function main() {
         entry.healthBar.update(enemy.hp / enemy.maxHp, entry.sprite.x, spriteTopY(entry));
       }
       updateHitFlash(entry, dt);
-      if (!entry.spawnAnim) updateTravel(entry, dt);
+      if (!entry.spawnAnim) {
+        updateTravel(entry, dt);
+        updateRangedAnim(entry, dt);
+      }
     }
   });
 }
