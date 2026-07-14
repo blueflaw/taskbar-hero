@@ -4,11 +4,13 @@ import { ProgressionSystem, BOSS_INTERVAL } from './systems/ProgressionSystem.js
 import { FloatingTextManager } from './fx/FloatingTextManager.js';
 import { triggerHitFlash, updateHitFlash } from './fx/HitFlash.js';
 import { SoundManager } from './fx/SoundManager.js';
-import { startLunge, updateLunge } from './fx/MeleeAnim.js';
+import { travelTo, updateTravel } from './fx/MeleeAnim.js';
+import { CoinBurstManager } from './fx/CoinBurst.js';
 import { Background } from './fx/Background.js';
 import { HERO_CLASSES, MAX_PARTY_SIZE } from './config/heroClasses.js';
 import { HealthBar } from './fx/HealthBar.js';
 import { ProjectileManager } from './fx/Projectile.js';
+import { ImpactSparkManager } from './fx/ImpactSpark.js';
 
 const app = new PIXI.Application({
   resizeTo: document.getElementById('game-root'),
@@ -38,6 +40,10 @@ const FRONT_BASE_X = 130;
 const FRONT_SLOT_SPACING = 30;
 const ENEMY_SLOT_SPACING = 34; // px between enemies in a wave
 const DEATH_FADE_DURATION = 0.3; // seconds for a defeated enemy to fade out
+// How close a melee attacker stops from its target's center - tuned to your
+// sprites' ~30-38px visual width at SPRITE_SCALE, so front edges roughly
+// meet instead of fully overlapping or stopping short with a visible gap.
+const COLLISION_GAP = 16;
 
 // Sprites are bottom-anchored at sprite.y - this finds the visual top edge,
 // which is where a health bar should sit just above.
@@ -91,7 +97,7 @@ async function main() {
     sprite.x = baseX;
     sprite.y = groundY;
     app.stage.addChild(sprite);
-    const entry = { hero, sprite, baseScale: SPRITE_SCALE, baseTint: 0xffffff, hitTimer: 0, baseX };
+    const entry = { hero, sprite, baseScale: SPRITE_SCALE, baseTint: 0xffffff, hitTimer: 0, baseX, engagedTargetId: null };
     entry.healthBar = new HealthBar(app.stage);
     heroSprites.push(entry);
     return entry;
@@ -109,6 +115,8 @@ async function main() {
 
   const floatingText = new FloatingTextManager(app.stage);
   const projectiles = new ProjectileManager(app.stage);
+  const impactSparks = new ImpactSparkManager(app.stage);
+  const coinBurst = new CoinBurstManager(app.stage);
   const sound = new SoundManager(0.4);
 
   // Small clickable icon that opens the inventory popup. Sits top-left,
@@ -223,6 +231,8 @@ async function main() {
         if (!enemyEntries.includes(targetEntry)) return;
         floatingText.spawn(targetEntry.sprite.x, targetEntry.sprite.y - 30, `-${event.amount}`, 0xffcc66);
         triggerHitFlash(targetEntry);
+        triggerHitFlash(attacker); // a quick punch/flash on the attacker too, for swing feedback
+        impactSparks.spawn(targetEntry.sprite.x, targetEntry.sprite.y - 20, 0xffe8a3);
         sound.play('hit-dealt');
       };
 
@@ -233,8 +243,19 @@ async function main() {
           0xd9b877, // wooden-arrow tan
           onImpact
         );
+      } else if (attacker.engagedTargetId === event.targetEnemyId) {
+        // Already standing at this enemy from a previous swing - no need to
+        // travel again, just land the hit in place.
+        onImpact();
       } else {
-        startLunge(attacker, +1, onImpact);
+        // New target (first swing, or the previous one died and combat moved
+        // to the next enemy in line) - travel to meet it and hold there.
+        // collisionX stops just short of the enemy's center so sprites meet
+        // edge-to-edge rather than overlapping; clamped so the hero never
+        // overshoots past its own formation slot.
+        attacker.engagedTargetId = event.targetEnemyId;
+        const collisionX = Math.max(attacker.baseX, targetEntry.sprite.x - COLLISION_GAP);
+        travelTo(attacker, collisionX, onImpact);
       }
       return;
     }
@@ -247,6 +268,8 @@ async function main() {
       const onImpact = () => {
         floatingText.spawn(target.sprite.x, target.sprite.y - 30, `-${event.amount}`, 0xff5f5f);
         triggerHitFlash(target);
+        triggerHitFlash(attackerEntry); // quick punch/flash on the attacker too
+        impactSparks.spawn(target.sprite.x, target.sprite.y - 20, 0xff9999);
         sound.play('hit-taken');
       };
 
@@ -260,8 +283,17 @@ async function main() {
           0xb98bff, // magic-bolt purple, matches the loot/rare accent color
           onImpact
         );
+      } else if (attackerEntry.engagedTargetId === event.target) {
+        // Already standing at this hero from a previous swing.
+        onImpact();
       } else {
-        startLunge(attackerEntry, -1, () => {
+        // New target (first swing, or its previous target died/changed) -
+        // travel to meet the hero and hold there. Mirrors the hero side:
+        // stops just short of the hero's center, clamped so it never
+        // overshoots past its own formation slot.
+        attackerEntry.engagedTargetId = event.target;
+        const collisionX = Math.min(attackerEntry.baseX, target.sprite.x + COLLISION_GAP);
+        travelTo(attackerEntry, collisionX, () => {
           if (!enemyEntries.includes(attackerEntry)) return;
           onImpact();
         });
@@ -275,6 +307,7 @@ async function main() {
         entry.dying = true;
         entry.deathTimer = 0;
         entry.healthBar.container.visible = false;
+        coinBurst.spawn(entry.sprite.x, entry.sprite.y - 15);
       }
       return;
     }
@@ -305,6 +338,16 @@ async function main() {
     }
 
     if (event.type === 'wave-spawned') {
+      // Any hero still engaged with the previous wave has nothing left to
+      // fight - send it back to its formation slot. It'll re-engage with
+      // the new wave's front enemy on its next attack.
+      heroSprites.forEach((entry) => {
+        if (entry.engagedTargetId !== null) {
+          entry.engagedTargetId = null;
+          travelTo(entry, entry.baseX, null);
+        }
+      });
+
       // Clear out anything left over from before (should normally already be
       // empty - each enemy removes itself via the death-fade below - but this
       // is a safety net for edge cases like a party-wipe reset).
@@ -333,6 +376,7 @@ async function main() {
           hitTimer: 0,
           baseX,
           dying: false,
+          engagedTargetId: null,
         };
         entry.healthBar = new HealthBar(app.stage);
 
@@ -372,12 +416,14 @@ async function main() {
 
     background.update(dt);
     projectiles.update(dt);
+    impactSparks.update(dt);
+    coinBurst.update(dt);
 
-    // Animate floating damage/heal numbers and hero hit-flash/lunge
+    // Animate floating damage/heal numbers and hero hit-flash/travel
     floatingText.update(dt);
     heroSprites.forEach((entry) => {
       updateHitFlash(entry, dt);
-      updateLunge(entry, dt);
+      updateTravel(entry, dt);
     });
 
     // Each enemy entry is in exactly one of three states this frame:
@@ -419,7 +465,7 @@ async function main() {
         entry.healthBar.update(enemy.hp / enemy.maxHp, entry.sprite.x, spriteTopY(entry));
       }
       updateHitFlash(entry, dt);
-      if (!entry.spawnAnim) updateLunge(entry, dt);
+      if (!entry.spawnAnim) updateTravel(entry, dt);
     }
   });
 }

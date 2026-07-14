@@ -1,49 +1,51 @@
-const LUNGE_DURATION = 0.3; // total dash-out + dash-back, in seconds
-const IMPACT_FRACTION = 0.45; // where in the animation the "hit" visually lands (0..1)
-const LUNGE_DISTANCE = 22; // px - a hop, not a full traversal, given how small the strip is
+const TRAVEL_SPEED = 900; // px/sec - a fast dash; actual duration scales with distance
+const MIN_TRAVEL_DURATION = 0.1; // floor so very short hops don't feel like a jitter
+const MAX_TRAVEL_DURATION = 0.35; // ceiling so a long dash across the strip doesn't drag
 
-/**
- * Start a lunge for `entry` (needs `.sprite` and `.baseX`). `direction`
- * should be +1 (lunge right, e.g. hero attacking enemy) or -1 (lunge left,
- * e.g. enemy attacking a hero). `onImpact` fires once, right as the sprite
- * reaches the peak of the lunge - that's where damage numbers/hit-flash/
- * sound should trigger, so the feedback lines up with the "contact" frame
- * instead of firing instantly when the attack is decided.
- */
-export function startLunge(entry, direction, onImpact) {
-  entry.lunge = { timer: 0, dx: LUNGE_DISTANCE * direction, impactFired: false, onImpact };
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
 }
 
 /**
- * Call every frame for every entry that might be mid-lunge. When no lunge
- * is active this just pins the sprite to its resting baseX, so external
- * animations (like an enemy spawn slide-in) should be skipped for that
- * frame rather than calling this - see game.js for how the two are sequenced.
+ * One-way travel from wherever `entry` currently rests to `targetX`, then
+ * HOLDS there - unlike a lunge, this doesn't automatically return. `entry`
+ * needs `.sprite` and `.baseX` (its formation slot); `.restX` tracks where
+ * it's actually standing right now (defaults to baseX until the first
+ * travel completes). Call this again with a new targetX to move on (e.g.
+ * the current target died and combat has moved to the next enemy in line),
+ * or with `entry.baseX` itself to send it back to formation - see game.js
+ * for the engage/disengage state machine built on top of this.
  */
-export function updateLunge(entry, deltaSeconds) {
-  if (!entry.lunge) {
-    entry.sprite.x = entry.baseX;
+export function travelTo(entry, targetX, onArrive) {
+  const fromX = entry.restX ?? entry.baseX;
+  const distance = Math.abs(targetX - fromX);
+  const duration = clamp(distance / TRAVEL_SPEED, MIN_TRAVEL_DURATION, MAX_TRAVEL_DURATION);
+  entry.travel = { fromX, targetX, timer: 0, duration, onArrive };
+}
+
+/**
+ * Call every frame for every entry that might be mid-travel. When nothing
+ * is in progress this pins the sprite to `restX` (or `baseX` if it's never
+ * moved), so external animations (enemy spawn slide-in, death fade) should
+ * be skipped for that frame rather than calling this - see game.js.
+ */
+export function updateTravel(entry, deltaSeconds) {
+  if (!entry.travel) {
+    entry.sprite.x = entry.restX ?? entry.baseX;
     return;
   }
 
-  entry.lunge.timer += deltaSeconds;
-  const t = Math.min(1, entry.lunge.timer / LUNGE_DURATION);
+  entry.travel.timer += deltaSeconds;
+  const t = Math.min(1, entry.travel.timer / entry.travel.duration);
+  const eased = 1 - Math.pow(1 - t, 2); // ease-out - quick start, gentle arrival
 
-  // Triangular envelope: 0 -> 1 over [0, IMPACT_FRACTION], then 1 -> 0 back to rest.
-  const envelope =
-    t < IMPACT_FRACTION
-      ? t / IMPACT_FRACTION
-      : 1 - (t - IMPACT_FRACTION) / (1 - IMPACT_FRACTION);
-
-  entry.sprite.x = entry.baseX + entry.lunge.dx * envelope;
-
-  if (!entry.lunge.impactFired && t >= IMPACT_FRACTION) {
-    entry.lunge.impactFired = true;
-    if (entry.lunge.onImpact) entry.lunge.onImpact();
-  }
+  entry.sprite.x = entry.travel.fromX + (entry.travel.targetX - entry.travel.fromX) * eased;
 
   if (t >= 1) {
-    entry.sprite.x = entry.baseX;
-    entry.lunge = null;
+    entry.restX = entry.travel.targetX;
+    entry.sprite.x = entry.restX;
+    const onArrive = entry.travel.onArrive;
+    entry.travel = null;
+    if (onArrive) onArrive();
   }
 }

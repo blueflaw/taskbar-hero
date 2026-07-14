@@ -7,52 +7,47 @@ things inside a phase — the phase order matters more than the item order.
 
 ## Right Now 🔵
 
-- [x] **Inventory popup window**
-- [x] **Damage numbers + hit-flash**
-- [x] **System tray icon**
-- [x] **Sound effects**
-- [x] **Melee lunge animation + scrolling background + boss stages**
-- [x] **Multi-enemy waves + formation targeting** — enemies now spawn in
-  scaling waves (1 enemy on early stages, up to 4 by stage 16+), each wave
-  cycling through Tank/Brawler/Archer roles front-to-back. Heroes always
-  attack the front-most living enemy - the tank soaks hits so the archer
-  behind it stays safe until earlier enemies are cleared. Boss stages
-  (every 10th) are always a solo fight against a bigger, red-tinted enemy,
-  regardless of the wave-scaling formula. Multiple heroes were already
-  supported by the architecture (`GameState.addHero()` + generic party
-  rendering) - this didn't need new code, just calling it.
-- [x] **Recruit-hero UI** — the inventory popup now has a Recruit section:
-  spend gold to add Ranger (60g) or Priest (120g) to the party, capped at
-  `MAX_PARTY_SIZE` (4). Same window-relay pattern as equipping items - the
-  inventory window never touches gold/party directly, it asks the game
-  window (which owns `GameState`) to do it.
-- [x] **Projectile animation + health bars** — ranged attackers (Ranger
-  hero, Archer enemy role) now fire a small traveling bolt instead of
-  melee-lunging; everyone else still lunges. Every hero and enemy has a
-  small color-graded hp bar (green → yellow → red) that tracks above their
-  sprite, including through lunges and enemy slide-ins. Lives in
-  `src/fx/Projectile.js` and `src/fx/HealthBar.js`.
-- [x] **Hero formation lines** — heroes now split into front (melee, e.g.
-  Knight) and back (ranged/support, e.g. Ranger/Priest) via
-  `Hero.formationLine`. Front-line heroes render further right, closer to
-  the enemies; back-line heroes stay at the strip's original left position.
-  Enemies always attack a living front-line hero if one exists, and only
-  reach the back line once every front-line hero is dead - mirrors the
-  enemy-side tank/brawler/archer formation, just on the hero side. Lives in
-  `config/heroClasses.js` (the `formationLine` field) and
-  `CombatSystem`'s enemy-targeting logic.
+*(Full technical detail on all of these lives in README.md - this list is a
+quick-scan history, not the deep dive.)*
+
+- [x] Inventory popup window
+- [x] Damage numbers + hit-flash
+- [x] System tray icon
+- [x] Sound effects
+- [x] Melee lunge animation + scrolling background + boss stages
+- [x] Multi-enemy waves + formation targeting (Tank/Brawler/Archer, front-to-back)
+- [x] Recruit-hero UI (spend gold to add Ranger/Priest via the inventory popup)
+- [x] Projectile animation + health bars (ranged attackers fire bolts; every unit has an hp bar)
+- [x] Hero formation lines (front-line melee protects back-line ranged/support, mirrors enemy formation)
+- [x] Melee collision (attackers travel to a real collision point near their target instead of a token hop)
+- [x] **Engage-and-hold + coin burst** — melee units (heroes and enemies)
+  now travel to their target ONCE and hold that position for as long as
+  they keep fighting it, instead of resetting to their formation slot
+  between every single swing. They only move again when the target changes
+  (it died, so combat moves to the next enemy in line) or when the fight
+  ends entirely (new wave spawns → heroes return to formation). A quick
+  punch-flash on the attacker itself (reusing `HitFlash`) gives per-swing
+  feedback while stationary. Enemy deaths now also pop a small 3-coin gold
+  burst (`CoinBurst.js`) that arcs and fades. `MeleeAnim.js`'s API changed
+  from `startLunge`/`updateLunge` (round-trip) to `travelTo`/`updateTravel`
+  (one-way, holds at the destination) - `game.js` tracks each entry's
+  `engagedTargetId` to know whether to travel or just swing in place.
 - [ ] **Next up is your call** — see "possible next steps" below.
-- [ ] **Next up is** fixing mele attack animation they need to colide to make the hero swing the sword. mele should not have distance between mele monsters and mele heroes. 
-- [ ] **Next up is** adding attack animation and walk animation.
+
+**Working split going forward:** code/animation/systems work stays with
+Claude; art and content ideas are a good lane for you to drive in parallel
+since neither blocks the other - e.g. you keep working on sprites (idle/attack
+frames, enemy variety, item icons) while animation/combat systems get built
+against whatever's currently in `src/assets/`. Flag here whenever you push
+new art or an idea so the roadmap stays the shared source of truth for both
+of us.
 
 *(Possible next steps: a 4th hero class so there's something left to recruit
-after Ranger + Priest, and to give the front line more than one melee option;
-real arrow/bolt sprites instead of plain colored dots for projectiles; a
-small draw/recoil animation for ranged attackers instead of staying static
-while the projectile does the work; enemy roles could get distinct sprites
-too, following the same pattern.)*
-
-*lets build the world 1st before adding another hero class*
+after Ranger + Priest, and so the front line has a second melee option; real
+arrow/bolt sprites instead of plain colored dots for projectiles; a small
+draw/recoil animation for ranged attackers instead of staying static while
+the projectile does the work; enemy roles could get distinct sprites too,
+following the same pattern.)*
 
 ---
 
@@ -81,7 +76,6 @@ Goal: replace every placeholder with real assets — this is where your
 illustration skills take over from mine.
 
 - [x] Basic hero/enemy sprite swap (done on your end - static images replacing the Python-generated placeholders)
-- [ ] generate all assets temps to let the artist what needs to be created.
 - [ ] Idle + attack animation frames per class (currently a single static image per hero/enemy - swap `PIXI.Sprite` for `PIXI.AnimatedSprite` with a spritesheet when ready)
 - [ ] Enemy sprite variety (3-5 enemy types per stage tier + per formation role, not just one image)
 - [ ] Icon art for loot items (even simple colored gem/weapon icons help a lot)
@@ -99,10 +93,9 @@ Goal: give players (including future-you) reasons to keep the game running for w
   stats/attack pattern (currently just a reskinned normal enemy) and a
   guaranteed rare+ drop.
 - [ ] Equipment sets / set bonuses (e.g. "2pc Knight Set: +10% HP")
-- [ ] Crafting or item upgrade system (combine 3 commons → 1 uncommon randomize grade quality)
+- [ ] Crafting or item upgrade system (combine 3 commons → 1 uncommon)
 - [ ] A second currency (gems) from bosses, spent on cosmetic-only stuff first —
       keeps monetization-adjacent design honest before you add anything real
-  [ ] add info section for lore, item quality, hero background etc...
 
 ---
 
@@ -116,15 +109,6 @@ idle toy from an idle *game*.
 - [ ] Daily login reward (simple streak counter is enough to start)
 - [ ] Achievements list (even a static local list with checkmarks is good UX)
 - [ ] Pet/companion system (passive bonus, unlockable) — good scope for a v2
-- [ ] Aclchemy system ( distroys items, resources for gold )
-- [ ] synthesis:  [mix 9 items to create 1 higher grade items]
-- [ ] crafting: craft items [main weapons, 2ndary weapon, helmet, armor, gloves, bots, accessories(amulet, earing, ring, bracer)]
-- [ ] decoration: add decoration to items, e.g add attackspeed jadestone to weapon.
-- [ ] engraving: add engraving to items, e.g add goblin hide to armor.
-- [ ] Inscription add special stats to equipment. materials equipement with an inscription slot.
-- [ ] removal: removes stats applied to equipment.
-      *Materials used to grant stats will not be returned.
-- [ ] Offering: offer coins to obtain random items.
 
 ---
 

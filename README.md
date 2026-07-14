@@ -49,8 +49,14 @@ src/
     FloatingTextManager.js   Damage/heal number pool - spawns, animates, cleans up
     HitFlash.js               Brief tint + scale punch on a sprite that took damage
     SoundManager.js           Preloads and plays short one-shot SFX clips
-    MeleeAnim.js               Lunge-toward-target-and-back animation, fires an
-                               impact callback (damage/flash/sound) at the hit frame
+    MeleeAnim.js               One-way travel to a point, then HOLDS there
+                               (travelTo/updateTravel) - game.js's engage
+                               state machine decides when to call it again
+                               vs. just landing a hit in place
+    ImpactSpark.js             Small expanding-and-fading burst at an impact
+                               point - used by both melee and projectile hits
+    CoinBurst.js                Small gold-coin pop-and-fall burst, fired on
+                               enemy death (cosmetic only, not the gold ledger)
     Projectile.js               Ranged-attack bolt that travels attacker->target,
                                fires an arrival callback (same role as MeleeAnim's impact)
     HealthBar.js                Small color-graded hp bar that tracks above a sprite
@@ -109,15 +115,39 @@ Equipping an item follows the same relay pattern in reverse — the inventory
 window never mutates state directly, it just asks the game window to do it.
 This keeps `GameState` single-owned, which avoids sync bugs down the line.
 
-### Combat feel: lunge animations and the background
+### Combat feel: engage-and-hold, the background, and coin bursts
 
-Attacks no longer resolve instantly from a visual standpoint. When
-`CombatSystem` decides a hit lands, `game.js` starts a **lunge** (see
-`MeleeAnim.js`) - the attacker dashes partway toward its target and back over
-~0.3s. The damage number, hit-flash, and sound don't fire at the moment the
-attack was decided; they fire from an `onImpact` callback that `MeleeAnim`
-invokes right as the lunge reaches its peak, so the feedback lines up with
-the "contact" frame instead of popping instantly.
+Attacks no longer resolve instantly from a visual standpoint, and melee
+combatants no longer reset position after every swing. When `CombatSystem`
+decides a melee hit lands, `game.js` checks whether the attacker is already
+`engaged` with that specific target (tracked via `entry.engagedTargetId`):
+
+- **New target** (first swing, or the previous target just died and combat
+  moved to the next enemy in line) - `MeleeAnim.travelTo()` sends the
+  attacker to a real collision point near the target (`COLLISION_GAP` in
+  `game.js`, tuned to your sprites' visual width) and it **holds there**,
+  rather than snapping back to its formation slot. Duration scales with
+  distance (`TRAVEL_SPEED`, floored/ceilinged) so a short gap and a long one
+  both feel like the same dash speed instead of the same fixed duration.
+- **Same target as last swing** - no travel at all, the hit just lands in
+  place. The attacker gets a quick punch-flash (reusing `HitFlash` on itself,
+  not just the target) so repeated swings still read as "hitting something"
+  rather than standing still doing nothing.
+- **Fight over** - heroes only return to their formation slot when there's
+  genuinely nothing left to fight, i.e. a new wave spawns (`wave-spawned`
+  event) and their previous target no longer exists. Enemies don't need this
+  same reset - they just die wherever they're standing when their turn comes.
+
+The damage number, hit-flash, sound, and a small impact-spark burst
+(`ImpactSpark.js`) don't fire at the moment the attack was decided; they fire
+from an `onImpact`/arrival callback so the feedback lines up with the actual
+"contact" frame. Ranged attackers (Ranger, Archer role) skip all of this
+entirely and fire a `Projectile` instead - see below.
+
+Enemy deaths also pop a small 3-coin gold burst (`CoinBurst.js`) that arcs
+outward and fades - purely cosmetic feedback tied to the `enemy-killed`
+event, separate from the actual gold ledger (which is credited once per
+wave-clear, not per kill - see `ProgressionSystem`).
 
 The **background** (`Background.js`) is a two-layer parallax scroll - distant
 hill silhouettes and near ground ticks - deliberately kept low-alpha so the
@@ -229,11 +259,12 @@ grows - each formation group is independently indexed.
 ## Next steps to build this out further
 
 Full checklist lives in `ROADMAP.md`. With waves, formations (on both the
-enemy and hero side), recruiting, projectiles, and health bars all working,
-reasonable next moves: a 4th hero class (there's nothing left to recruit
-after Ranger + Priest, and the front line only has one melee option), real
-arrow/bolt sprites for projectiles instead of colored dots, or a small
-draw/recoil animation for ranged attackers.
+enemy and hero side), recruiting, projectiles, health bars, real melee
+collision, and engage-and-hold all working, reasonable next moves: a 4th
+hero class (there's nothing left to recruit after Ranger + Priest, and the
+front line only has one melee option), real arrow/bolt sprites for
+projectiles instead of colored dots, or a small draw/recoil animation for
+ranged attackers.
 
 ## Known rough edges (intentional, for a prototype)
 
@@ -250,6 +281,13 @@ draw/recoil animation for ranged attackers.
 - Ranged attackers don't have any attack-side animation (no bow-draw, no
   recoil) - they stay static while the projectile does all the work. A
   small draw/release animation would be a nice follow-up.
+- `COLLISION_GAP` (16px) in `game.js` was tuned by eye against your current
+  sprite sizes - if you swap in noticeably bigger or smaller art, this is
+  the one constant to revisit so attacks still look like they connect.
+- Engaged enemies don't have their own "give up and return to formation"
+  reset the way heroes do - they just die wherever they're standing, which
+  reads fine in practice, but if you ever add non-death ways for an enemy
+  to lose its target this'll need the same disengage treatment heroes get.
 - No mute/volume UI yet — `SoundManager` supports `setMuted()`/`setVolume()`
   but nothing in the UI calls them. Worth adding once you build the settings
   panel (Phase 5).
