@@ -45,6 +45,9 @@ const DEATH_FADE_DURATION = 0.3; // seconds for a defeated enemy to fade out
 // sprites' ~30-38px visual width at SPRITE_SCALE, so front edges roughly
 // meet instead of fully overlapping or stopping short with a visible gap.
 const COLLISION_GAP = 16;
+// How far a boss steps back before slamming into a heavy attack - purely a
+// telegraph cue, doesn't affect damage. Only ever used by role==='boss'.
+const HEAVY_WINDUP_PULLBACK = 18;
 
 // Sprites are bottom-anchored at sprite.y - this finds the visual top edge,
 // which is where a health bar should sit just above.
@@ -275,12 +278,14 @@ async function main() {
       const target = heroSprites.find(({ hero }) => hero.id === event.target);
       if (!attackerEntry || !target) return;
 
-      const onImpact = () => {
-        floatingText.spawn(target.sprite.x, target.sprite.y - 30, `-${event.amount}`, 0xff5f5f);
+      const onImpact = (heavy) => {
+        const label = heavy ? `-${event.amount}!!` : `-${event.amount}`;
+        floatingText.spawn(target.sprite.x, target.sprite.y - 30, label, heavy ? 0xff3333 : 0xff5f5f);
         triggerHitFlash(target);
         triggerHitFlash(attackerEntry); // quick punch/flash on the attacker too
-        impactSparks.spawn(target.sprite.x, target.sprite.y - 20, 0xff9999);
-        sound.play('hit-taken');
+        impactSparks.spawn(target.sprite.x, target.sprite.y - 20, heavy ? 0xffaa66 : 0xff9999);
+        if (heavy) impactSparks.spawn(target.sprite.x, target.sprite.y - 20, 0xffffff); // extra spark for emphasis
+        sound.play(heavy ? 'boss-heavy-hit' : 'hit-taken');
       };
 
       if (attackerEntry.role === 'archer') {
@@ -295,12 +300,27 @@ async function main() {
             attackerEntry.sprite.x, attackerEntry.sprite.y - 18,
             target.sprite.x, target.sprite.y - 18,
             0xb98bff, // magic-bolt purple, matches the loot/rare accent color
-            onImpact
+            () => onImpact(event.heavy)
           );
         });
       } else if (attackerEntry.engagedTargetId === event.target) {
-        // Already standing at this hero from a previous swing.
-        onImpact();
+        // Already standing at this hero from a previous swing. A normal
+        // swing lands instantly in place; a heavy attack gets a quick
+        // telegraph first - step back, then slam back in - so it reads as
+        // something bigger is coming instead of an identical swing.
+        if (event.heavy) {
+          const windupX = (attackerEntry.restX ?? attackerEntry.baseX) + HEAVY_WINDUP_PULLBACK;
+          travelTo(attackerEntry, windupX, () => {
+            if (!enemyEntries.includes(attackerEntry)) return;
+            const collisionX = Math.min(attackerEntry.baseX, target.sprite.x + COLLISION_GAP);
+            travelTo(attackerEntry, collisionX, () => {
+              if (!enemyEntries.includes(attackerEntry)) return;
+              onImpact(true);
+            });
+          });
+        } else {
+          onImpact(false);
+        }
       } else {
         // New target (first swing, or its previous target died/changed) -
         // travel to meet the hero and hold there. Mirrors the hero side:
@@ -310,9 +330,19 @@ async function main() {
         const collisionX = Math.min(attackerEntry.baseX, target.sprite.x + COLLISION_GAP);
         travelTo(attackerEntry, collisionX, () => {
           if (!enemyEntries.includes(attackerEntry)) return;
-          onImpact();
+          onImpact(event.heavy);
         });
       }
+      return;
+    }
+
+    if (event.type === 'enemy-enraged') {
+      const entry = findEnemyEntry(event.enemyId);
+      if (!entry) return;
+      entry.baseTint = 0xcc0000; // deeper red than the normal boss tint - a permanent visual shift
+      floatingText.spawn(entry.sprite.x, entry.sprite.y - 34, 'ENRAGED!', 0xff2222);
+      sound.play('boss-enrage');
+      background.pulse();
       return;
     }
 

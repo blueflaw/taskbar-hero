@@ -21,19 +21,24 @@ quick-scan history, not the deep dive.)*
 - [x] Hero formation lines (front-line melee protects back-line ranged/support, mirrors enemy formation)
 - [x] Melee collision (attackers travel to a real collision point near their target instead of a token hop)
 - [x] Engage-and-hold + coin burst (melee units travel to their target once and hold, instead of resetting every swing; enemy deaths pop a small gold burst)
-- [x] **Ranged attacker draw/recoil animation** — Ranger and Archer no
-  longer stand perfectly static while their projectile does the work. A
-  quick draw-back (~5px, away from the target) plays first, then a
-  snap-through-neutral recoil with a small forward overshoot before
-  settling. The shot doesn't fire the instant the attack is decided
-  anymore - it launches at the draw→recoil transition, so the arrow/bolt
-  visually leaves as the bow snaps forward. Purely a position offset (no
-  scale changes, to avoid fighting with `HitFlash`'s own scale-punch), so it
-  layers cleanly on top of `updateTravel`. Lives in
-  `src/fx/RangedAttackAnim.js`. One new edge case handled: since the shot
-  now launches ~0.12s after the attack is decided instead of instantly, the
-  target could die in that window (from a different hero) before the arrow
-  even leaves - guarded the same way the impact callback already was.
+- [x] Ranged attacker draw/recoil animation (Ranger/Archer pull back then release, shot launches at the recoil moment)
+- [x] **Boss unique mechanics** — bosses are no longer just a bigger reskin.
+  Two new mechanics, both boss-only (`role === 'boss'`), both driven from
+  `config/bossMechanics.js`:
+  - **Enrage**: once a boss's hp drops to/below 50%, it permanently gets
+    faster attacks (cooldown ×0.65) and more damage (atk ×1.3) - a one-time
+    trigger, checked via `Enemy.checkEnrage()`. Visually: a deeper red tint
+    that sticks for the rest of the fight, a floating "ENRAGED!", a
+    dedicated sound, and a background speed pulse for emphasis.
+  - **Heavy attack**: every 3rd swing a boss lands deals 2x damage
+    (`Enemy.isHeavyAttack()`, tracked via an attack counter, not a timer).
+    If the boss is already standing at its target from a prior swing, it
+    telegraphs the heavy hit - steps back briefly, then slams back in -
+    reusing the same `travelTo` primitive from the melee-collision work
+    rather than a new animation system. Bigger damage number, extra impact
+    spark, and its own sound distinguish it from a normal swing.
+  Two new SFX (`boss-enrage.wav`, `boss-heavy-hit.wav`) generated the same
+  way as the original set - synthesized tones, no sourced audio.
 - [ ] **Next up is your call** — see "possible next steps" below.
 
 **Working split going forward:** code/animation/systems work stays with
@@ -44,12 +49,11 @@ against whatever's currently in `src/assets/`. Flag here whenever you push
 new art or an idea so the roadmap stays the shared source of truth for both
 of us.
 
-*(Possible next steps: boss unique mechanics so the tension-building
-buildup actually pays off with something other than a bigger reskin; a 4th
-hero class so there's something left to recruit after Ranger + Priest, and
-so the front line has a second melee option; real arrow/bolt sprites
-instead of plain colored dots for projectiles; enemy roles could get
-distinct sprites too, following the same pattern; a mute/volume settings UI.)*
+*(Possible next steps: a 4th hero class so there's something left to
+recruit after Ranger + Priest, and so the front line has a second melee
+option; real arrow/bolt sprites instead of plain colored dots for
+projectiles; enemy roles could get distinct sprites too, following the same
+pattern; a mute/volume settings UI.)*
 
 ---
 
@@ -90,10 +94,11 @@ Goal: give players (including future-you) reasons to keep the game running for w
 
 - [ ] More hero classes beyond knight/ranger/priest (mage? rogue?)
 - [x] Recruit-hero UI (spend gold to add ranger/priest to the party via the inventory popup's Recruit section)
-- [x] Basic boss stages every `BOSS_INTERVAL` (10) stages - bigger, red-tinted
-  enemy, background tint builds toward it. Still needs: actually different
-  stats/attack pattern (currently just a reskinned normal enemy) and a
-  guaranteed rare+ drop.
+- [x] Boss stages every `BOSS_INTERVAL` (10) stages - bigger, red-tinted
+  enemy, background tint builds toward it, plus unique mechanics (enrage at
+  50% hp, a telegraphed heavy attack every 3rd swing - see "Right Now").
+  Still open: a guaranteed rare+ drop specifically from bosses (currently
+  loot rolls the same 35%-chance table as any other kill).
 - [ ] Equipment sets / set bonuses (e.g. "2pc Knight Set: +10% HP")
 - [ ] Crafting or item upgrade system (combine 3 commons → 1 uncommon)
 - [ ] A second currency (gems) from bosses, spent on cosmetic-only stuff first —

@@ -1,10 +1,14 @@
+import { HEAVY_ATTACK_MULT } from '../config/bossMechanics.js';
+
 // Resolves one tick of auto-battle between a party and a wave (array) of enemies.
 // Heroes always attack the front-most LIVING enemy (lowest index in the
 // array) - that's the formation order: tank up front, then brawler, then
 // archer safely in back until everything ahead of it is dead. Enemies mirror
 // this on the hero side: they always attack a front-line (melee) hero if any
 // are alive, and only reach back-line (ranged/support) heroes once every
-// front-line hero is dead - see Hero.formationLine.
+// front-line hero is dead - see Hero.formationLine. Bosses additionally
+// enrage at low hp and land a heavy attack every few swings - see
+// Enemy.checkEnrage()/isHeavyAttack() and config/bossMechanics.js.
 export class CombatSystem {
   /**
    * @param {import('../entities/Hero.js').Hero[]} party
@@ -38,6 +42,8 @@ export class CombatSystem {
         events.push({ type: 'hero-attack', source: hero.id, targetEnemyId: frontEnemy.id, amount: dmg });
         if (!frontEnemy.isAlive()) {
           events.push({ type: 'enemy-killed', enemyId: frontEnemy.id });
+        } else if (frontEnemy.checkEnrage()) {
+          events.push({ type: 'enemy-enraged', enemyId: frontEnemy.id });
         }
       }
     }
@@ -56,8 +62,10 @@ export class CombatSystem {
       if (priorityGroup.length === 0) continue;
 
       const target = priorityGroup[Math.floor(Math.random() * priorityGroup.length)];
-      const dmg = target.takeDamage(enemy.atk);
-      events.push({ type: 'enemy-attack', source: enemy.id, target: target.id, amount: dmg });
+      const heavy = enemy.isHeavyAttack();
+      const rawAtk = heavy ? Math.round(enemy.atk * HEAVY_ATTACK_MULT) : enemy.atk;
+      const dmg = target.takeDamage(rawAtk);
+      events.push({ type: 'enemy-attack', source: enemy.id, target: target.id, amount: dmg, heavy });
     }
 
     const waveDefeated = enemies.length > 0 && enemies.every((e) => !e.isAlive());

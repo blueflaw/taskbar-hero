@@ -3,6 +3,8 @@ const SFX_PATHS = {
   'hit-taken': 'assets/sfx/hit-taken.wav',
   'level-up': 'assets/sfx/level-up.wav',
   'loot-drop': 'assets/sfx/loot-drop.wav',
+  'boss-enrage': 'assets/sfx/boss-enrage.wav',
+  'boss-heavy-hit': 'assets/sfx/boss-heavy-hit.wav',
 };
 
 /**

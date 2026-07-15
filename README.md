@@ -49,6 +49,7 @@ src/
     FloatingTextManager.js   Damage/heal number pool - spawns, animates, cleans up
     HitFlash.js               Brief tint + scale punch on a sprite that took damage
     SoundManager.js           Preloads and plays short one-shot SFX clips
+                               (includes boss-enrage.wav, boss-heavy-hit.wav)
     MeleeAnim.js               One-way travel to a point, then HOLDS there
                                (travelTo/updateTravel) - game.js's engage
                                state machine decides when to call it again
@@ -67,12 +68,16 @@ src/
 
   entities/
     Hero.js              Stats, leveling, equipment, combat actions
-    Enemy.js              Scales with "stage" number and an optional formation role
+    Enemy.js              Scales with "stage" number and an optional formation
+                           role. Bosses also track attacksLanded (for the
+                           heavy-attack rotation) and enraged state.
 
   systems/
     CombatSystem.js       Resolves one tick of auto-battle across a party and a
                            WAVE (array) of enemies - heroes always target the
-                           front-most living enemy; returns events
+                           front-most living enemy; enemies prioritize
+                           front-line heroes; handles boss enrage/heavy-attack
+                           checks; returns events
     WaveSystem.js           Builds a formation-ordered wave for a given stage
                            (tank/brawler/archer roles, boss = solo)
     LootSystem.js          Rolls chests using the loot table
@@ -91,6 +96,8 @@ src/
     lootTables.js           Rarity weights and item generation
     enemyRoles.js           Tank/Brawler/Archer stat multipliers + the boss role
     waveConfig.js            BOSS_INTERVAL and wave-size-per-stage scaling
+    bossMechanics.js         Enrage threshold/multipliers, heavy-attack
+                           interval/multiplier - boss-only tuning
 
   assets/
     hero-*.png, enemy-*.png  Hero/enemy sprites (originally generated
@@ -190,6 +197,48 @@ from purple toward red as the stage number approaches a multiple of
 wave spawns, each enemy slides in from off-screen right (staggered slightly
 per slot) rather than popping into place; boss-stage enemies are additionally
 bigger and permanently red-tinted.
+
+### Boss mechanics: enrage and heavy attacks
+
+Until this feature, a boss was purely a stat reskin - bigger numbers on the
+same behavior as any other enemy. Two mechanics (`config/bossMechanics.js`)
+make a boss fight actually feel different, both gated on `role === 'boss'`
+so nothing here ever touches a normal enemy:
+
+**Enrage.** `Enemy.checkEnrage()` is called after a boss takes damage - once
+its hp drops to/below `ENRAGE_HP_FRACTION` (50%), it permanently gets faster
+attacks (`attackCooldown *= ENRAGE_COOLDOWN_MULT`) and hits harder
+(`atk *= ENRAGE_ATK_MULT`). This is a one-time trigger (`this.enraged` guards
+against re-firing), and `CombatSystem` emits an `enemy-enraged` event the
+instant it happens. `game.js` reacts with a floating "ENRAGED!", a dedicated
+sound, a permanent shift to a deeper red `baseTint` (which `HitFlash` then
+correctly blends its own flash color from/back to - see the `HitFlash`
+section above), and a `background.pulse()` for extra emphasis. One subtlety:
+`_cooldownTimer` (the countdown already in progress) isn't rescaled when
+`attackCooldown` shrinks, so the speed-up takes full effect starting the
+*next* attack cycle rather than instantly mid-countdown - imperceptible in
+practice, not worth the extra bookkeeping to fix.
+
+**Heavy attack.** `Enemy.isHeavyAttack()` checks an attack counter
+(`attacksLanded`, incremented every time `tick()` fires) against
+`HEAVY_ATTACK_INTERVAL` - every 3rd swing lands as a heavy hit, dealing
+`HEAVY_ATTACK_MULT` (2x) damage. This is attack-count-based, not a timer, so
+it stays in sync with the boss's own attack rate even after it enrages and
+starts swinging faster. On the rendering side, a heavy attack gets a
+telegraph when the boss is already standing at its target (the common case,
+since most swings after the first don't need to travel): it reuses
+`travelTo` from the melee-collision work to step back a short distance
+(`HEAVY_WINDUP_PULLBACK`), then slam back in for the hit - rather than
+inventing a new animation primitive, the "engage and hold" travel system
+turned out to be exactly what a wind-up/release telegraph needed too. The
+impact itself gets a bigger, differently-colored damage number, an extra
+white impact spark layered on top of the normal one, and its own sound.
+
+Both mechanics were verified with a fast, deterministic logic-only test
+(no rendering) that confirmed exact numbers - enrage firing exactly once
+with `atk`/`cooldown` multiplied precisely as configured, and heavy attacks
+landing on schedule with the expected damage ratio - before checking the
+rendered result in the actual app.
 
 ### Multi-enemy waves and formation targeting
 
@@ -291,17 +340,17 @@ grows - each formation group is independently indexed.
 
 Full checklist lives in `ROADMAP.md`. With waves, formations (on both the
 enemy and hero side), recruiting, projectiles, health bars, real melee
-collision, engage-and-hold, and ranged draw/recoil all working, reasonable
-next moves: boss unique mechanics (right now they're just a bigger reskin -
-the background's tension-building tint doesn't pay off with anything
-mechanically different yet), a 4th hero class (there's nothing left to
-recruit after Ranger + Priest, and the front line only has one melee
-option), or real arrow/bolt sprites for projectiles instead of colored dots.
+collision, engage-and-hold, ranged draw/recoil, and boss enrage/heavy-attack
+mechanics all working, reasonable next moves: a 4th hero class (there's
+nothing left to recruit after Ranger + Priest, and the front line only has
+one melee option), real arrow/bolt sprites for projectiles instead of
+colored dots, or a guaranteed rare+ drop specifically from boss kills.
 
 ## Known rough edges (intentional, for a prototype)
 
-- Boss enemies are currently a reskin (bigger + red tint, boss stat role) of
-  the normal enemy - not a mechanically distinct fight with unique attacks.
+- Bosses share the same sprite as normal enemies (bigger + red-tinted, and
+  now deeper-red once enraged) rather than unique art - the mechanics are
+  distinct now, the visuals are still a reskin.
 - All enemy roles (tank/brawler/archer) currently share the same sprite -
   only stats differ. Distinct art per role would help readability a lot.
 - Only two heroes are recruitable (Ranger, Priest) before you run out of
