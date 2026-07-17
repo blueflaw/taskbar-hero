@@ -63,8 +63,11 @@ src/
     RangedAttackAnim.js         Draw-back-then-release x-offset for Ranger/Archer -
                                onRelease is where the projectile actually launches
     HealthBar.js                Small color-graded hp bar that tracks above a sprite
-    Background.js              Scrolling parallax hills + ground ticks, boss-proximity
-                               tint, and a speed-burst pulse on stage transitions
+    WalkCycle.js                 Marching-in-place animation (leg-swap frames + bob),
+                               played on wave transitions - doesn't move the sprite
+    Background.js              Scrolling parallax hills + a proper floor layer,
+                               boss-proximity tint, and a speed-burst pulse on
+                               stage transitions
 
   entities/
     Hero.js              Stats, leveling, equipment, combat actions
@@ -91,10 +94,15 @@ src/
     SaveManager.js          Load/save + offline-progress simulation on launch
 
   config/
-    heroClasses.js          Data-driven class stats + recruitCost (add classes
-                           here, no code changes). Exports MAX_PARTY_SIZE.
+    heroClasses.js          Full per-class stat block (hp/atk/armor/attackSpeed/
+                           crit/CDR/moveSpeed/castSpeed) + recruitCost - THE
+                           place to tune a hero or add a new class, no code
+                           changes needed elsewhere. Exports MAX_PARTY_SIZE.
     lootTables.js           Rarity weights and item generation
-    enemyRoles.js           Tank/Brawler/Archer stat multipliers + the boss role
+    enemyRoles.js           Tank/Brawler/Archer/Boss - same stat shape as
+                           heroClasses.js but as multipliers on Enemy's
+                           stage-scaled base stats. THE place to tune a
+                           monster or add a new role.
     waveConfig.js            BOSS_INTERVAL and wave-size-per-stage scaling
     bossMechanics.js         Enrage threshold/multipliers, heavy-attack
                            interval/multiplier - boss-only tuning
@@ -240,6 +248,41 @@ with `atk`/`cooldown` multiplied precisely as configured, and heavy attacks
 landing on schedule with the expected damage ratio - before checking the
 rendered result in the actual app.
 
+### Floor and the "walking to the next fight" animation
+
+The background's ground layer used to be sparse 3px tick marks - readable as
+motion, but not really a *floor*. `Background._buildFloorLayer()` replaces
+that with an actual textured band: a base fill, a lighter top-edge highlight,
+and a couple of small darker texture flecks, all baked as real distinct
+colors in the same tile (unlike the hill layer, which uses a single runtime
+`.tint` since it only ever needs one color at a time). Still alpha 0.55, so
+the desktop still blends through underneath the strip - solid-*reading*
+ground, not a solid-*colored* one.
+
+For the walking animation, the constraint that shaped the design: hero
+formation position (`baseX`/`restX`) is load-bearing for combat - targeting,
+collision points, engage/disengage all depend on it - so heroes can't
+actually walk across the strip between waves without breaking those systems.
+Instead, `WalkCycle.js`'s `startMarching()` plays a **treadmill effect**:
+on every `wave-spawned` event, living heroes alternate between two walk
+textures with a small vertical bob for `MARCH_DURATION` (0.5s, matched to
+how long `Background`'s post-wave speed burst takes to decay back to
+baseline) - the world visibly speeds up underneath a stationary-but-walking
+party, which reads as travel without moving anyone's x position at all.
+`updateMarching()` is a no-op if a class has no walk textures registered
+(`WALK_SPRITE_PATHS` in `game.js`), so an animation-less class just doesn't
+visibly march rather than throwing - useful if you add a class before
+getting around to its walk frames.
+
+Since your hero sprites are your own custom art now and I don't have
+matching walk frames for them, the actual walk textures
+(`hero-{class}-walk1.png` / `-walk2.png`) are **temporary placeholders** -
+generated in the original simple chibi style (same approach as the very
+first placeholder sprites), not yours. They're separate files from your real
+idle sprites, so nothing of yours was touched or overwritten; swap them for
+real walk-cycle art matching your style whenever you get to it, same
+filenames and the animation keeps working unchanged.
+
 ### Multi-enemy waves and formation targeting
 
 `GameState.enemies` holds the current **wave** - an array, not a single
@@ -336,15 +379,71 @@ a new hero just needs `heroSprites.filter(sameFormationLine).length` for its
 slot index, so existing heroes never need to be repositioned when the party
 grows - each formation group is independently indexed.
 
+### Editing stats - hero and monster, one schema for both
+
+Heroes and monsters share the same *shape* of stat block, just expressed
+differently: a hero's stats are flat numbers that scale with level
+(`config/heroClasses.js`), a monster's are multipliers on `Enemy`'s
+stage-scaled base stats (`config/enemyRoles.js`). Nothing outside these two
+files needs to change for a stat tweak or a brand new class/role - both
+files have a full field-by-field comment block at the top explaining what
+each stat does and which one to touch.
+
+| Stat | Hero field | Monster field | Where it lives / how it works |
+|---|---|---|---|
+| Level | `hero.level` | `enemy.stage` (closest equivalent - monsters don't level, they scale with stage) | `Hero.gainXp()` levels up; `Enemy` stats are computed once at spawn from `stage` |
+| Exp | `hero.xp` | n/a | `xpToNextLevel()` in `heroClasses.js` sets the curve |
+| Attack Damage | `hero.atk` (getter, scales with level + equipment) | `enemy.atk` (set at spawn from stage × role's `atkMult`) | `baseAtk` in `heroClasses.js` / `atkMult` in `enemyRoles.js` |
+| Basic Attack DPS | `hero.dps` (computed getter) | not exposed (not needed - CombatSystem resolves actual hits directly) | `atk × effectiveAttackSpeed × crit factor` - see `Hero.js` |
+| Current HP | `hero.hp` / `hero.maxHp` | `enemy.hp` / `enemy.maxHp` | `baseHp` in `heroClasses.js` / `hpMult` in `enemyRoles.js` |
+| Attack Speed | `hero.attackSpeed` (attacks/sec, before CDR) | `enemy.attackCooldown` (seconds/attack, inverse framing) | Set per class/role directly |
+| Critical Chance / Critical Damage | `hero.critChance` / `hero.critDamageMult` | `enemy.critChance` / `enemy.critDamageMult` | Rolled per-hit in `CombatSystem`; both sides can crit now |
+| Cooldown Reduction | `hero.cooldownReduction` (0..1) | not currently on monsters (bosses get their own speed-up via enrage instead) | Shrinks `1 / effectiveAttackSpeed` in `Hero.tick()` |
+| Move Speed | `hero.moveSpeed` (multiplier) | `enemy.moveSpeed` (from role's `moveSpeedMult`) | Passed into `MeleeAnim.travelTo()`'s `speedMultiplier` param - scales how fast lunge/engage animations play, not combat math |
+| Armor | `hero.armor` (getter, scales with level) | `enemy.armor` | Flat damage reduction: `takeDamage()` does `max(1, rawDamage - armor)`. Renamed from the old internal `def` to match this stat list. |
+| Cast Speed | `hero.castSpeed` | not on monsters | **Stored but not wired to anything yet** - there's no ability/cast system distinct from basic attacks. Priest's heal currently reuses `attackSpeed`/`cooldownReduction` like any other attack. This is a placeholder for when a proper ability system exists. |
+
+A few implementation notes worth knowing if you're tuning numbers:
+- Crit and heavy-attack (`bossMechanics.js`) visuals now **stack** - a hit
+  can be both heavy and crit, and the floating text/impact spark reflect both.
+- `moveSpeed` only affects animation timing (how fast a lunge/engage plays
+  out), never actual combat resolution timing - a "fast" unit doesn't attack
+  more often for having high `moveSpeed`, that's what `attackSpeed`/
+  `cooldownReduction` are for.
+- All of this was verified with a deterministic logic-only test before
+  checking the rendered result - confirmed the DPS formula, the
+  cooldown-reduction math, and the crit damage ratio all matched their
+  configured values exactly, not just "looked about right."
+
+### Floor and character positioning - where to edit
+
+- **Floor appearance** (color, texture, height): `Background._buildFloorLayer()`
+  in `src/fx/Background.js`. `tileH` controls the floor's height in pixels;
+  the three `beginFill()` calls control its colors (base fill, top-edge
+  highlight, texture flecks); `layer.alpha` controls how much the desktop
+  shows through underneath it.
+- **Where the floor sits vertically** (and therefore where characters'
+  feet land): `groundY` in `game.js` (`app.screen.height - 2`) - this is
+  the single source of truth for "the ground," used by hero/enemy sprite
+  positioning, the floor layer, and health bar placement alike.
+- **A different floor per stage/level** isn't built yet, but there's a
+  ready-made pattern to follow: `Background.setBossProximity()` already
+  swaps the hill layer's tint based on the current stage every time a wave
+  spawns. A `setFloorTheme(stage)` method the same shape - regenerating or
+  re-tinting the floor texture based on stage tier - would slot in the same
+  way. Good next step whenever you're ready for it.
+
 ## Next steps to build this out further
 
 Full checklist lives in `ROADMAP.md`. With waves, formations (on both the
 enemy and hero side), recruiting, projectiles, health bars, real melee
-collision, engage-and-hold, ranged draw/recoil, and boss enrage/heavy-attack
-mechanics all working, reasonable next moves: a 4th hero class (there's
-nothing left to recruit after Ranger + Priest, and the front line only has
-one melee option), real arrow/bolt sprites for projectiles instead of
-colored dots, or a guaranteed rare+ drop specifically from boss kills.
+collision, engage-and-hold, ranged draw/recoil, boss enrage/heavy-attack
+mechanics, a proper floor, the wave-transition walk animation, and a full
+hero/monster stat system all working, reasonable next moves: a 4th hero
+class (there's nothing left to recruit after Ranger + Priest, and the front
+line only has one melee option), real arrow/bolt sprites for projectiles
+instead of colored dots, a per-stage floor theme (see above), or a
+guaranteed rare+ drop specifically from boss kills.
 
 ## Known rough edges (intentional, for a prototype)
 
@@ -356,12 +455,28 @@ colored dots, or a guaranteed rare+ drop specifically from boss kills.
 - Only two heroes are recruitable (Ranger, Priest) before you run out of
   classes - a 4th class would give the recruit UI more room to matter, and
   give the front line a second melee option.
+- Walk-cycle sprites (`hero-{class}-walk1/2.png`) are temporary placeholders
+  in my simple original style, not yours - see the walking-animation section
+  above. A 4th hero class would also need its own walk pair added to
+  `WALK_SPRITE_PATHS` in `game.js`, or it just won't visibly march.
+- Only heroes march on a wave transition, not enemies - matches what was
+  asked for, but if you want the new wave's enemies to also look like
+  they're arriving on foot rather than just sliding in, that's a natural
+  extension of the same `WalkCycle` module.
 - Projectiles are a plain colored dot, not an actual arrow/bolt sprite or
   rotated-to-face-direction graphic - fine as a placeholder, would benefit
   from real art like everything else.
 - `COLLISION_GAP` (16px) in `game.js` was tuned by eye against your current
   sprite sizes - if you swap in noticeably bigger or smaller art, this is
   the one constant to revisit so attacks still look like they connect.
+- `castSpeed` exists on every hero but doesn't do anything yet - there's no
+  ability/cast system separate from basic attacks for it to modify. It's
+  there so the stat exists ahead of that system rather than needing a
+  schema change later.
+- `moveSpeed` only scales melee lunge/engage animation speed - ranged
+  attackers' draw/recoil timing (`RangedAttackAnim.js`) doesn't currently
+  respect it, so a fast archer's bow-draw takes the same time as a slow
+  one's. Minor inconsistency, easy follow-up if it's noticeable.
 - Engaged enemies don't have their own "give up and return to formation"
   reset the way heroes do - they just die wherever they're standing, which
   reads fine in practice, but if you ever add non-death ways for an enemy

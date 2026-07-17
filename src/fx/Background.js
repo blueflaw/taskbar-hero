@@ -14,10 +14,11 @@ function lerpColor(from, to, t) {
 }
 
 /**
- * A subtle two-layer parallax scroller: distant hill silhouettes (slow) and
- * near ground ticks (fast). Deliberately kept low-alpha and partial-height -
- * the strip's transparency (blending with the desktop) is part of the
- * original design, so this adds a sense of motion without turning the
+ * A subtle parallax scroller: distant hill silhouettes (slow) and a proper
+ * floor band (fast, closest to camera) that the hero/enemy sprites visually
+ * stand on. Deliberately kept semi-transparent and partial-height - the
+ * strip's transparency (blending with the desktop) is part of the original
+ * design, so this adds a sense of motion and ground without turning the
  * window into an opaque scene.
  */
 export class Background {
@@ -25,10 +26,10 @@ export class Background {
     this.burstSpeed = 0;
 
     this.hillLayer = this._buildHillLayer(app, screenWidth);
-    this.groundLayer = this._buildGroundLayer(app, screenWidth, groundY);
+    this.floorLayer = this._buildFloorLayer(app, screenWidth, groundY);
 
     // Insert behind everything else already on stage (index 0 = bottom).
-    app.stage.addChildAt(this.groundLayer, 0);
+    app.stage.addChildAt(this.floorLayer, 0);
     app.stage.addChildAt(this.hillLayer, 0);
   }
 
@@ -59,27 +60,35 @@ export class Background {
     return layer;
   }
 
-  _buildGroundLayer(app, screenWidth, groundY) {
-    const tileW = 18;
-    const tileH = 2;
+  _buildFloorLayer(app, screenWidth, groundY) {
+    const tileW = 24;
+    const tileH = 3;
     const gfx = new PIXI.Graphics();
-    // PIXI's generateTexture bounds itself to the drawn geometry's bounding
-    // box - without this near-invisible full-tile rect first, the texture
-    // would collapse to just the 3px tick mark and tile edge-to-edge with
-    // no gap (a solid line instead of dashes). This establishes the gap.
-    gfx.beginFill(0xffffff, 0.001);
+
+    // Base path fill - a warm, neutral dirt-path tone. Baked as real colors
+    // (not runtime .tint) since this layer needs several distinct shades in
+    // the same texture, and .tint can only multiply a whole sprite uniformly.
+    gfx.beginFill(0x4a4038, 1);
     gfx.drawRect(0, 0, tileW, tileH);
     gfx.endFill();
-    gfx.beginFill(0xffffff, 1);
-    gfx.drawRect(0, 0, 3, tileH);
+
+    // Top-edge highlight - a lighter line suggesting the path catching light.
+    gfx.beginFill(0x6b5f4f, 1);
+    gfx.drawRect(0, 0, tileW, 1);
+    gfx.endFill();
+
+    // A couple of small darker texture flecks (pebbles/cracks) per tile.
+    gfx.beginFill(0x352c26, 1);
+    gfx.drawRect(6, 2, 2, 1);
+    gfx.drawRect(15, 2, 1, 1);
     gfx.endFill();
 
     const texture = app.renderer.generateTexture(gfx);
     gfx.destroy();
 
     const layer = new PIXI.TilingSprite(texture, screenWidth + tileW, tileH);
-    layer.y = groundY + 1;
-    layer.alpha = 0.35;
+    layer.y = groundY; // top edge sits right where sprite feet are
+    layer.alpha = 0.55; // more solid than the strip used to be, still blends with the desktop
     return layer;
   }
 
@@ -100,6 +109,6 @@ export class Background {
     const speed = BASE_SPEED + this.burstSpeed;
 
     this.hillLayer.tilePosition.x -= speed * 0.4 * deltaSeconds; // slower = further away
-    this.groundLayer.tilePosition.x -= speed * deltaSeconds;
+    this.floorLayer.tilePosition.x -= speed * deltaSeconds;
   }
 }

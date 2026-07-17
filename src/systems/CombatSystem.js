@@ -6,9 +6,11 @@ import { HEAVY_ATTACK_MULT } from '../config/bossMechanics.js';
 // archer safely in back until everything ahead of it is dead. Enemies mirror
 // this on the hero side: they always attack a front-line (melee) hero if any
 // are alive, and only reach back-line (ranged/support) heroes once every
-// front-line hero is dead - see Hero.formationLine. Bosses additionally
-// enrage at low hp and land a heavy attack every few swings - see
-// Enemy.checkEnrage()/isHeavyAttack() and config/bossMechanics.js.
+// front-line hero is dead - see Hero.formationLine. Both sides can roll a
+// critical hit (critChance/critDamageMult - see config/heroClasses.js and
+// config/enemyRoles.js for where to tune those per class/role). Bosses
+// additionally enrage at low hp and land a heavy attack every few swings -
+// see Enemy.checkEnrage()/isHeavyAttack() and config/bossMechanics.js.
 export class CombatSystem {
   /**
    * @param {import('../entities/Hero.js').Hero[]} party
@@ -38,8 +40,10 @@ export class CombatSystem {
       // of wasting a swing on a corpse.
       const frontEnemy = enemies.find((e) => e.isAlive());
       if (frontEnemy) {
-        const dmg = frontEnemy.takeDamage(hero.atk);
-        events.push({ type: 'hero-attack', source: hero.id, targetEnemyId: frontEnemy.id, amount: dmg });
+        const crit = Math.random() < hero.critChance;
+        const rawAtk = crit ? Math.round(hero.atk * hero.critDamageMult) : hero.atk;
+        const dmg = frontEnemy.takeDamage(rawAtk);
+        events.push({ type: 'hero-attack', source: hero.id, targetEnemyId: frontEnemy.id, amount: dmg, crit });
         if (!frontEnemy.isAlive()) {
           events.push({ type: 'enemy-killed', enemyId: frontEnemy.id });
         } else if (frontEnemy.checkEnrage()) {
@@ -63,9 +67,14 @@ export class CombatSystem {
 
       const target = priorityGroup[Math.floor(Math.random() * priorityGroup.length)];
       const heavy = enemy.isHeavyAttack();
-      const rawAtk = heavy ? Math.round(enemy.atk * HEAVY_ATTACK_MULT) : enemy.atk;
+      const crit = Math.random() < enemy.critChance;
+
+      let rawAtk = enemy.atk;
+      if (heavy) rawAtk = Math.round(rawAtk * HEAVY_ATTACK_MULT);
+      if (crit) rawAtk = Math.round(rawAtk * enemy.critDamageMult);
+
       const dmg = target.takeDamage(rawAtk);
-      events.push({ type: 'enemy-attack', source: enemy.id, target: target.id, amount: dmg, heavy });
+      events.push({ type: 'enemy-attack', source: enemy.id, target: target.id, amount: dmg, heavy, crit });
     }
 
     const waveDefeated = enemies.length > 0 && enemies.every((e) => !e.isAlive());

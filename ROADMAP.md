@@ -22,32 +22,39 @@ quick-scan history, not the deep dive.)*
 - [x] Melee collision (attackers travel to a real collision point near their target instead of a token hop)
 - [x] Engage-and-hold + coin burst (melee units travel to their target once and hold, instead of resetting every swing; enemy deaths pop a small gold burst)
 - [x] Ranged attacker draw/recoil animation (Ranger/Archer pull back then release, shot launches at the recoil moment)
-- [x] **Boss unique mechanics** — bosses are no longer just a bigger reskin.
-  Two new mechanics, both boss-only (`role === 'boss'`), both driven from
-  `config/bossMechanics.js`:
-  - **Enrage**: once a boss's hp drops to/below 50%, it permanently gets
-    faster attacks (cooldown ×0.65) and more damage (atk ×1.3) - a one-time
-    trigger, checked via `Enemy.checkEnrage()`. Visually: a deeper red tint
-    that sticks for the rest of the fight, a floating "ENRAGED!", a
-    dedicated sound, and a background speed pulse for emphasis.
-  - **Heavy attack**: every 3rd swing a boss lands deals 2x damage
-    (`Enemy.isHeavyAttack()`, tracked via an attack counter, not a timer).
-    If the boss is already standing at its target from a prior swing, it
-    telegraphs the heavy hit - steps back briefly, then slams back in -
-    reusing the same `travelTo` primitive from the melee-collision work
-    rather than a new animation system. Bigger damage number, extra impact
-    spark, and its own sound distinguish it from a normal swing.
-  Two new SFX (`boss-enrage.wav`, `boss-heavy-hit.wav`) generated the same
-  way as the original set - synthesized tones, no sourced audio.
+- [x] Boss unique mechanics (enrage at 50% hp, telegraphed heavy attack every 3rd swing - see README for full detail)
+- [x] Floor + walking-to-next-fight animation (proper textured floor band; heroes march-in-place on wave transitions via a treadmill effect - see README)
+- [x] **Full hero/monster stat system** — heroes (and monsters, same shape)
+  now have: Level, Exp, Attack Damage, Current HP, Attack Speed, Armor
+  (renamed from the old internal `def`), Critical Chance + Critical Damage
+  (new mechanic - both sides can now crit), Cooldown Reduction (shrinks
+  effective time between attacks), Move Speed (scales lunge/travel
+  animation speed), Cast Speed (stored, **not yet wired to a mechanic** -
+  no ability/cast system exists yet), and a computed Basic Attack DPS
+  stat. All tunable per class/role in `config/heroClasses.js` and
+  `config/enemyRoles.js` - see the "Editing stats" section in README for
+  exact locations and what each field does. Crit and heavy-attack visuals
+  now stack (a heavy AND crit hit shows both cues). Verified with a
+  deterministic logic test: DPS formula, cooldown-reduction math, and crit
+  ratio all matched their configured values exactly.
 - [ ] **Next up is your call** — see "possible next steps" below.
+
+**Where to edit things** (see README for full detail):
+- Hero/monster stats: `config/heroClasses.js` and `config/enemyRoles.js`
+- Floor appearance/height: `src/fx/Background.js` (`_buildFloorLayer`) and
+  `groundY` in `game.js`
+- A different floor per level/stage tier is a natural next step once you're
+  ready - `Background.setBossProximity()` already re-tints the hill layer
+  based on stage, so a `setFloorTheme(stage)`-style method following the
+  same pattern is the way to go; ask and we can build it together.
 
 **Working split going forward:** code/animation/systems work stays with
 Claude; art and content ideas are a good lane for you to drive in parallel
 since neither blocks the other - e.g. you keep working on sprites (idle/attack
-frames, enemy variety, item icons) while animation/combat systems get built
-against whatever's currently in `src/assets/`. Flag here whenever you push
-new art or an idea so the roadmap stays the shared source of truth for both
-of us.
+frames, enemy variety, item icons, and now real walk-cycle frames to replace
+the temp placeholders) while animation/combat systems get built against
+whatever's currently in `src/assets/`. Flag here whenever you push new art
+or an idea so the roadmap stays the shared source of truth for both of us.
 
 *(Possible next steps: a 4th hero class so there's something left to
 recruit after Ranger + Priest, and so the front line has a second melee
@@ -83,6 +90,7 @@ illustration skills take over from mine.
 
 - [x] Basic hero/enemy sprite swap (done on your end - static images replacing the Python-generated placeholders)
 - [ ] Idle + attack animation frames per class (currently a single static image per hero/enemy - swap `PIXI.Sprite` for `PIXI.AnimatedSprite` with a spritesheet when ready)
+- [ ] Replace the temp walk-cycle placeholders (`hero-{class}-walk1/2.png`) with real 2+ frame walk art matching your actual hero sprites - currently my simple placeholder style, not yours
 - [ ] Enemy sprite variety (3-5 enemy types per stage tier + per formation role, not just one image)
 - [ ] Icon art for loot items (even simple colored gem/weapon icons help a lot)
 - [ ] A small logo/wordmark for the inventory popup header

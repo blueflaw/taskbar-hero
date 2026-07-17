@@ -17,14 +17,22 @@ export class Hero {
 
     this.baseHp = def.baseHp;
     this.baseAtk = def.baseAtk;
-    this.baseDef = def.baseDef;
+    this.baseArmor = def.baseArmor;
     this.attackSpeed = def.attackSpeed;
     this.healPerSecond = def.healPerSecond || 0;
+
+    // Flat stats (not currently level-scaled or equipment-affected - see
+    // config/heroClasses.js for where to tune these per class).
+    this.critChance = def.critChance ?? 0;
+    this.critDamageMult = def.critDamageMult ?? 1.5;
+    this.cooldownReduction = def.cooldownReduction ?? 0;
+    this.moveSpeed = def.moveSpeed ?? 1.0;
+    this.castSpeed = def.castSpeed ?? 1.0; // reserved - see README, not wired to a mechanic yet
 
     this.equipment = { weapon: null, armor: null, trinket: null };
 
     this.hp = this.maxHp;
-    this.attackCooldown = 0;
+    this._cooldownTimer = 0;
   }
 
   // Stats scale with level; equipment adds flat bonuses on top
@@ -38,8 +46,23 @@ export class Hero {
     return Math.round((this.baseAtk + this.level * 1.5) + equipBonus);
   }
 
-  get def() {
-    return Math.round(this.baseDef + this.level * 0.8);
+  get armor() {
+    return Math.round(this.baseArmor + this.level * 0.8);
+  }
+
+  // Effective attacks/sec after cooldownReduction shrinks the gap between
+  // them - this is what tick() actually uses, and what "Basic Attack DPS"
+  // (below) is computed from.
+  get effectiveAttackSpeed() {
+    return this.attackSpeed / (1 - this.cooldownReduction);
+  }
+
+  // Expected damage per second from basic attacks alone, crit included on
+  // average (not a single-hit number - see CombatSystem for the actual
+  // per-hit crit roll). Useful as a single "how strong is this build" stat.
+  get dps() {
+    const critFactor = 1 + this.critChance * (this.critDamageMult - 1);
+    return this.atk * this.effectiveAttackSpeed * critFactor;
   }
 
   _equipBonus() {
@@ -73,16 +96,16 @@ export class Hero {
 
   // Advance internal cooldown timer; returns true if hero should attack this tick
   tick(deltaSeconds) {
-    this.attackCooldown -= deltaSeconds;
-    if (this.attackCooldown <= 0) {
-      this.attackCooldown = 1 / this.attackSpeed;
+    this._cooldownTimer -= deltaSeconds;
+    if (this._cooldownTimer <= 0) {
+      this._cooldownTimer = 1 / this.effectiveAttackSpeed;
       return true;
     }
     return false;
   }
 
   takeDamage(amount) {
-    const mitigated = Math.max(1, amount - this.def);
+    const mitigated = Math.max(1, amount - this.armor);
     this.hp = Math.max(0, this.hp - mitigated);
     return mitigated;
   }

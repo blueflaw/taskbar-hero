@@ -12,6 +12,7 @@ import { HERO_CLASSES, MAX_PARTY_SIZE } from './config/heroClasses.js';
 import { HealthBar } from './fx/HealthBar.js';
 import { ProjectileManager } from './fx/Projectile.js';
 import { ImpactSparkManager } from './fx/ImpactSpark.js';
+import { startMarching, updateMarching } from './fx/WalkCycle.js';
 
 const app = new PIXI.Application({
   resizeTo: document.getElementById('game-root'),
@@ -29,6 +30,21 @@ const SPRITE_PATHS = {
   priest: 'assets/hero-priest.png',
   enemy: 'assets/enemy-slime.png',
 };
+
+// Temporary placeholder walk-cycle frames (2 per class) - swap these with
+// real walk art matching your own sprites whenever you get to it, same
+// filenames/shape (a [frame0, frame1] pair per class).
+const WALK_SPRITE_PATHS = {
+  knight: ['assets/hero-knight-walk1.png', 'assets/hero-knight-walk2.png'],
+  ranger: ['assets/hero-ranger-walk1.png', 'assets/hero-ranger-walk2.png'],
+  priest: ['assets/hero-priest-walk1.png', 'assets/hero-priest-walk2.png'],
+};
+
+// How long the "marching in place" animation plays on a wave transition -
+// matches how long Background's speed-burst pulse takes to decay back to
+// baseline (BURST_DECAY=140, initial burst=70 -> 70/140=0.5s), so the world
+// visibly speeds up for exactly as long as the heroes look like they're walking.
+const MARCH_DURATION = 0.5;
 
 const SPRITE_SCALE = 0.4; // 96px source -> ~38px, fits the 48px-tall strip
 const SPRITE_SOURCE_SIZE = 96; // all hero/enemy sprite source PNGs are 96x96
@@ -69,6 +85,14 @@ function makeEnemySprite() {
   return sprite;
 }
 
+// PIXI.Texture.from caches by URL internally, so calling this repeatedly
+// for the same class is cheap - no manual caching needed here.
+function getWalkTextures(classId) {
+  const paths = WALK_SPRITE_PATHS[classId];
+  if (!paths) return null; // class has no walk art yet - WalkCycle handles this gracefully
+  return [PIXI.Texture.from(paths[0]), PIXI.Texture.from(paths[1])];
+}
+
 // Formation layout: index 0 (front/tank) sits closest to the heroes, the
 // last index (back/archer) sits at the strip's right edge - mirrors how the
 // original single-enemy rested at that same right-edge position.
@@ -101,7 +125,17 @@ async function main() {
     sprite.x = baseX;
     sprite.y = groundY;
     app.stage.addChild(sprite);
-    const entry = { hero, sprite, baseScale: SPRITE_SCALE, baseTint: 0xffffff, hitTimer: 0, baseX, engagedTargetId: null };
+    const entry = {
+      hero,
+      sprite,
+      baseScale: SPRITE_SCALE,
+      baseTint: 0xffffff,
+      hitTimer: 0,
+      baseX,
+      engagedTargetId: null,
+      idleTexture: sprite.texture,
+      walkTextures: getWalkTextures(hero.classId),
+    };
     entry.healthBar = new HealthBar(app.stage);
     heroSprites.push(entry);
     return entry;
@@ -233,10 +267,12 @@ async function main() {
         // may have spawned) in the gap between the hit resolving and the
         // attack's impact frame - if so, its sprite is already destroyed.
         if (!enemyEntries.includes(targetEntry)) return;
-        floatingText.spawn(targetEntry.sprite.x, targetEntry.sprite.y - 30, `-${event.amount}`, 0xffcc66);
+        const label = event.crit ? `-${event.amount} CRIT!` : `-${event.amount}`;
+        floatingText.spawn(targetEntry.sprite.x, targetEntry.sprite.y - 30, label, event.crit ? 0xffe066 : 0xffcc66);
         triggerHitFlash(targetEntry);
         triggerHitFlash(attacker); // a quick punch/flash on the attacker too, for swing feedback
-        impactSparks.spawn(targetEntry.sprite.x, targetEntry.sprite.y - 20, 0xffe8a3);
+        impactSparks.spawn(targetEntry.sprite.x, targetEntry.sprite.y - 20, event.crit ? 0xffffff : 0xffe8a3);
+        if (event.crit) impactSparks.spawn(targetEntry.sprite.x, targetEntry.sprite.y - 20, 0xffe066);
         sound.play('hit-dealt');
       };
 
@@ -268,7 +304,7 @@ async function main() {
         // overshoots past its own formation slot.
         attacker.engagedTargetId = event.targetEnemyId;
         const collisionX = Math.max(attacker.baseX, targetEntry.sprite.x - COLLISION_GAP);
-        travelTo(attacker, collisionX, onImpact);
+        travelTo(attacker, collisionX, onImpact, attacker.hero.moveSpeed);
       }
       return;
     }
@@ -278,13 +314,14 @@ async function main() {
       const target = heroSprites.find(({ hero }) => hero.id === event.target);
       if (!attackerEntry || !target) return;
 
-      const onImpact = (heavy) => {
-        const label = heavy ? `-${event.amount}!!` : `-${event.amount}`;
-        floatingText.spawn(target.sprite.x, target.sprite.y - 30, label, heavy ? 0xff3333 : 0xff5f5f);
+      const onImpact = (heavy, crit) => {
+        const label = `-${event.amount}${heavy ? '!!' : ''}${crit ? ' CRIT!' : ''}`;
+        const color = heavy ? 0xff3333 : crit ? 0xffe066 : 0xff5f5f;
+        floatingText.spawn(target.sprite.x, target.sprite.y - 30, label, color);
         triggerHitFlash(target);
         triggerHitFlash(attackerEntry); // quick punch/flash on the attacker too
-        impactSparks.spawn(target.sprite.x, target.sprite.y - 20, heavy ? 0xffaa66 : 0xff9999);
-        if (heavy) impactSparks.spawn(target.sprite.x, target.sprite.y - 20, 0xffffff); // extra spark for emphasis
+        impactSparks.spawn(target.sprite.x, target.sprite.y - 20, heavy ? 0xffaa66 : crit ? 0xffe066 : 0xff9999);
+        if (heavy || crit) impactSparks.spawn(target.sprite.x, target.sprite.y - 20, 0xffffff); // extra spark for emphasis
         sound.play(heavy ? 'boss-heavy-hit' : 'hit-taken');
       };
 
@@ -300,7 +337,7 @@ async function main() {
             attackerEntry.sprite.x, attackerEntry.sprite.y - 18,
             target.sprite.x, target.sprite.y - 18,
             0xb98bff, // magic-bolt purple, matches the loot/rare accent color
-            () => onImpact(event.heavy)
+            () => onImpact(event.heavy, event.crit)
           );
         });
       } else if (attackerEntry.engagedTargetId === event.target) {
@@ -315,11 +352,11 @@ async function main() {
             const collisionX = Math.min(attackerEntry.baseX, target.sprite.x + COLLISION_GAP);
             travelTo(attackerEntry, collisionX, () => {
               if (!enemyEntries.includes(attackerEntry)) return;
-              onImpact(true);
-            });
-          });
+              onImpact(true, event.crit);
+            }, attackerEntry.moveSpeed);
+          }, attackerEntry.moveSpeed);
         } else {
-          onImpact(false);
+          onImpact(false, event.crit);
         }
       } else {
         // New target (first swing, or its previous target died/changed) -
@@ -330,8 +367,8 @@ async function main() {
         const collisionX = Math.min(attackerEntry.baseX, target.sprite.x + COLLISION_GAP);
         travelTo(attackerEntry, collisionX, () => {
           if (!enemyEntries.includes(attackerEntry)) return;
-          onImpact(event.heavy);
-        });
+          onImpact(event.heavy, event.crit);
+        }, attackerEntry.moveSpeed);
       }
       return;
     }
@@ -389,8 +426,15 @@ async function main() {
       heroSprites.forEach((entry) => {
         if (entry.engagedTargetId !== null) {
           entry.engagedTargetId = null;
-          travelTo(entry, entry.baseX, null);
+          travelTo(entry, entry.baseX, null, entry.hero.moveSpeed);
         }
+      });
+
+      // The wave just cleared (or this is the very first spawn) - march in
+      // place while the background's speed burst sells "moving on."
+      // Skipped for fallen heroes; nothing to walk toward for them.
+      heroSprites.forEach((entry) => {
+        if (entry.hero.isAlive()) startMarching(entry, MARCH_DURATION);
       });
 
       // Clear out anything left over from before (should normally already be
@@ -416,6 +460,7 @@ async function main() {
           enemyId: enemy.id,
           sprite,
           role: enemy.role, // needed to decide melee lunge vs ranged projectile on attack
+          moveSpeed: enemy.moveSpeed, // static per-enemy, cached here same as role
           baseScale: SPRITE_SCALE * (isBoss ? 1.35 : 1),
           baseTint: isBoss ? 0xff5555 : 0xffffff,
           hitTimer: 0,
@@ -470,6 +515,7 @@ async function main() {
       updateHitFlash(entry, dt);
       updateTravel(entry, dt);
       updateRangedAnim(entry, dt);
+      updateMarching(entry, dt, groundY, entry.walkTextures, entry.idleTexture);
     });
 
     // Each enemy entry is in exactly one of three states this frame:

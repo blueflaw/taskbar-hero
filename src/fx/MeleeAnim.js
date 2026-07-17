@@ -15,11 +15,16 @@ function clamp(value, min, max) {
  * the current target died and combat has moved to the next enemy in line),
  * or with `entry.baseX` itself to send it back to formation - see game.js
  * for the engage/disengage state machine built on top of this.
+ *
+ * `speedMultiplier` (default 1) scales TRAVEL_SPEED - pass the attacker's
+ * `moveSpeed` stat here (Hero.moveSpeed / Enemy.moveSpeed, see
+ * config/heroClasses.js and config/enemyRoles.js) so a faster unit actually
+ * closes distance faster, not just "wins initiative" more often.
  */
-export function travelTo(entry, targetX, onArrive) {
+export function travelTo(entry, targetX, onArrive, speedMultiplier = 1) {
   const fromX = entry.restX ?? entry.baseX;
   const distance = Math.abs(targetX - fromX);
-  const duration = clamp(distance / TRAVEL_SPEED, MIN_TRAVEL_DURATION, MAX_TRAVEL_DURATION);
+  const duration = clamp(distance / (TRAVEL_SPEED * speedMultiplier), MIN_TRAVEL_DURATION, MAX_TRAVEL_DURATION);
   entry.travel = { fromX, targetX, timer: 0, duration, onArrive };
 }
 
