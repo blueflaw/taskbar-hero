@@ -18,16 +18,19 @@ export class Hero {
     this.baseHp = def.baseHp;
     this.baseAtk = def.baseAtk;
     this.baseArmor = def.baseArmor;
-    this.attackSpeed = def.attackSpeed;
     this.healPerSecond = def.healPerSecond || 0;
 
-    // Flat stats (not currently level-scaled or equipment-affected - see
-    // config/heroClasses.js for where to tune these per class).
-    this.critChance = def.critChance ?? 0;
-    this.critDamageMult = def.critDamageMult ?? 1.5;
-    this.cooldownReduction = def.cooldownReduction ?? 0;
-    this.moveSpeed = def.moveSpeed ?? 1.0;
-    this.castSpeed = def.castSpeed ?? 1.0; // reserved - see README, not wired to a mechanic yet
+    // Base (unequipped) values for every equippable stat - each has a
+    // matching getter below that adds whatever equipment currently
+    // contributes to that same stat key. See config/heroClasses.js for
+    // where to tune these per class, and config/weaponTypes.js /
+    // lootTables.js for how equipment grants bonuses to these same keys.
+    this._baseAttackSpeed = def.attackSpeed;
+    this._baseCritChance = def.critChance ?? 0;
+    this._baseCritDamageMult = def.critDamageMult ?? 1.5;
+    this._baseCooldownReduction = def.cooldownReduction ?? 0;
+    this._baseMoveSpeed = def.moveSpeed ?? 1.0;
+    this._baseCastSpeed = def.castSpeed ?? 1.0; // reserved - see README, not wired to a mechanic yet
 
     this.equipment = { weapon: null, armor: null, trinket: null };
 
@@ -35,19 +38,51 @@ export class Hero {
     this._cooldownTimer = 0;
   }
 
-  // Stats scale with level; equipment adds flat bonuses on top
+  // Sums a given stat key across all currently-equipped items - e.g.
+  // _equipmentBonus('atk') adds up every equipped item's stats.atk. Any
+  // stat key an item grants "just works" here with no extra wiring, as
+  // long as a getter below reads it.
+  _equipmentBonus(statKey) {
+    return Object.values(this.equipment)
+      .filter(Boolean)
+      .reduce((sum, item) => sum + (item.stats?.[statKey] ?? 0), 0);
+  }
+
+  // Stats scale with level; equipment adds flat bonuses on top.
   get maxHp() {
-    const equipBonus = this._equipBonus();
-    return Math.round((this.baseHp + this.level * 8) + equipBonus * 0.5);
+    return Math.round((this.baseHp + this.level * 8) + this._equipmentBonus('hp'));
   }
 
   get atk() {
-    const equipBonus = this._equipBonus();
-    return Math.round((this.baseAtk + this.level * 1.5) + equipBonus);
+    return Math.round((this.baseAtk + this.level * 1.5) + this._equipmentBonus('atk'));
   }
 
   get armor() {
-    return Math.round(this.baseArmor + this.level * 0.8);
+    return Math.round((this.baseArmor + this.level * 0.8) + this._equipmentBonus('armor'));
+  }
+
+  get attackSpeed() {
+    return this._baseAttackSpeed + this._equipmentBonus('attackSpeed');
+  }
+
+  get critChance() {
+    return this._baseCritChance + this._equipmentBonus('critChance');
+  }
+
+  get critDamageMult() {
+    return this._baseCritDamageMult + this._equipmentBonus('critDamageMult');
+  }
+
+  get cooldownReduction() {
+    return this._baseCooldownReduction + this._equipmentBonus('cooldownReduction');
+  }
+
+  get moveSpeed() {
+    return this._baseMoveSpeed + this._equipmentBonus('moveSpeed');
+  }
+
+  get castSpeed() {
+    return this._baseCastSpeed + this._equipmentBonus('castSpeed');
   }
 
   // Effective attacks/sec after cooldownReduction shrinks the gap between
@@ -65,21 +100,26 @@ export class Hero {
     return this.atk * this.effectiveAttackSpeed * critFactor;
   }
 
-  _equipBonus() {
-    return Object.values(this.equipment)
-      .filter(Boolean)
-      .reduce((sum, item) => sum + item.statBonus, 0);
-  }
-
   isAlive() {
     return this.hp > 0;
   }
 
+  // True if this hero's class is allowed to equip `item` - class-restricted
+  // weapons (see config/weaponTypes.js) set item.allowedClasses; anything
+  // else (armor/trinkets today) is universal.
+  canEquip(item) {
+    if (!item) return false;
+    if (!item.allowedClasses) return true;
+    return item.allowedClasses.includes(this.classId);
+  }
+
   equip(item) {
-    if (!item || !this.equipment.hasOwnProperty(item.slot)) return;
+    if (!item || !this.equipment.hasOwnProperty(item.slot)) return false;
+    if (!this.canEquip(item)) return false;
     this.equipment[item.slot] = item;
     // Re-clamp hp if maxHp changed
     this.hp = Math.min(this.hp, this.maxHp);
+    return true;
   }
 
   gainXp(amount) {

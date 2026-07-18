@@ -98,7 +98,13 @@ src/
                            crit/CDR/moveSpeed/castSpeed) + recruitCost - THE
                            place to tune a hero or add a new class, no code
                            changes needed elsewhere. Exports MAX_PARTY_SIZE.
-    lootTables.js           Rarity weights and item generation
+    lootTables.js           10-tier rarity ladder (Common..Cosmic) + item
+                           generation - weapon-slot drops pull from
+                           weaponTypes.js, armor/trinket stay generic
+    weaponTypes.js           THE FILE for adding named weapons (per class).
+                           Currently: `sword`, Knight-only, 20 names. Add a
+                           new entry (bow for Ranger, staff for Priest, ...)
+                           and lootTables.js picks it up automatically.
     enemyRoles.js           Tank/Brawler/Archer/Boss - same stat shape as
                            heroClasses.js but as multipliers on Enemy's
                            stage-scaled base stats. THE place to tune a
@@ -433,20 +439,86 @@ A few implementation notes worth knowing if you're tuning numbers:
   re-tinting the floor texture based on stage tier - would slot in the same
   way. Good next step whenever you're ready for it.
 
+### Equipment: named weapons, rarity, and class restrictions
+
+Items used to be generic - "Common weapon", one flat `statBonus` number,
+equippable by anyone. Three files now work together to make them feel like
+real gear:
+
+**`config/weaponTypes.js` is the file to add named weapons in.** A weapon
+*type* (e.g. `sword`) has a pool of names (one is picked at random whenever
+that type drops - the name is cosmetic variety, not a separate power
+level), an `allowedClasses` restriction, and `baseStats` that get scaled by
+whatever rarity actually drops. Right now there's one fully-built type -
+`sword`, Knight-only, your 20 requested names - plus commented-out stub
+blocks for a Ranger `bow` and Priest `staff` ready to fill in whenever you
+have names picked out. Adding a type needs zero changes anywhere else -
+`lootTables.js` reads `WEAPON_TYPES` automatically and only rolls from
+types that currently have at least one name.
+
+**`config/lootTables.js`** has the rarity ladder - expanded from 5 tiers to
+your requested 10 (Common → Uncommon → Rare → Legendary → Immortal →
+Arcana → Beyond → Celestial → Divine → Cosmic), each with a drop `weight`
+and a `statMult` that scales an item's stats. `generateLoot()` branches by
+slot: a `weapon` roll picks a random type from `weaponTypes.js` and a
+random name from that type, then scales `baseStats` by the rolled rarity
+(and a small bonus for how deep into the run you are - `dropLevel`).
+`armor`/`trinket` slots stay on the older generic system for now (universal,
+single-stat) since only weapons were asked to be class-restricted.
+
+**Items now carry a `stats: { ... }` object**, not one generic number - a
+sword grants both `atk` and `attackSpeed` at once, for example. On the hero
+side, `Hero._equipmentBonus(statKey)` sums that key across every equipped
+item, and every stat getter (`atk`, `armor`, `attackSpeed`, `critChance`,
+...) calls it - so *any* stat key an item happens to grant works
+automatically with no extra wiring per stat. A future Ranger bow that
+grants `critChance`, for instance, needs nothing beyond adding it to
+`weaponTypes.js`.
+
+**Class restriction is enforced twice.** `Hero.canEquip(item)` checks
+`item.allowedClasses` against the hero's `classId` - `Hero.equip()` uses it
+internally and returns `false` if rejected, and the inventory UI
+(`inventory.js`) uses the same check to show a slot as green
+"equippable" or red "wrong-class" *before* you even click it. While wiring
+the equip flow through to this check I caught a real bug worth knowing
+about: the equip handler in `game.js` used to remove the item from
+`gameState.inventory` *before* calling `hero.equip()` - if equip failed
+(wrong class), the item had already been spliced out and would have just
+been deleted. Fixed by checking `canEquip()` first and only removing the
+item from inventory once we know the equip will actually succeed.
+
+All of this was verified with a deterministic logic test (5000 simulated
+rolls confirmed the rarity distribution matches configured weights; a
+forced equip attempt confirmed a knight can equip a sword and gains exactly
+the stated bonuses, a ranger's attempt is rejected and the item stays
+`null` on their equipment slot) before checking the rendered inventory
+window, where the class-restriction badge and wrong-class slot styling both
+showed up correctly.
+
 ## Next steps to build this out further
 
 Full checklist lives in `ROADMAP.md`. With waves, formations (on both the
 enemy and hero side), recruiting, projectiles, health bars, real melee
 collision, engage-and-hold, ranged draw/recoil, boss enrage/heavy-attack
-mechanics, a proper floor, the wave-transition walk animation, and a full
-hero/monster stat system all working, reasonable next moves: a 4th hero
-class (there's nothing left to recruit after Ranger + Priest, and the front
-line only has one melee option), real arrow/bolt sprites for projectiles
-instead of colored dots, a per-stage floor theme (see above), or a
-guaranteed rare+ drop specifically from boss kills.
+mechanics, a proper floor, the wave-transition walk animation, a full
+hero/monster stat system, and named/rarity/class-restricted equipment all
+working, reasonable next moves: Ranger and Priest weapon types (the files
+are ready, just need names), a 4th hero class, real arrow/bolt sprites for
+projectiles instead of colored dots, a per-stage floor theme (see above),
+or a guaranteed rare+ drop specifically from boss kills.
 
 ## Known rough edges (intentional, for a prototype)
 
+- Only `sword` (Knight) has real named weapons - Ranger and Priest have no
+  class-restricted weapon type yet, so a weapon-slot drop can currently
+  only ever be a sword. Add `bow`/`staff` (or whatever) to
+  `config/weaponTypes.js` once you've got names for them.
+- Armor and trinket slots are still on the older generic system (universal,
+  single `stats.armor`/`stats.atk` bonus, no named items) - only weapons
+  were asked to be class-restricted. The same `WEAPON_TYPES` pattern would
+  extend to named armor/trinkets fairly directly if you want that later.
+- Equipment set bonuses ("2pc Knight Set: +10% HP") aren't built - each
+  item's stats are independent, no bonus for wearing a matching set.
 - Bosses share the same sprite as normal enemies (bigger + red-tinted, and
   now deeper-red once enraged) rather than unique art - the mechanics are
   distinct now, the visuals are still a reskin.

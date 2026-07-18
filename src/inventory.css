@@ -10,6 +10,11 @@
   --rare: #4fa3ff;
   --legendary: #ff9d3d;
   --immortal: #ff5d8f;
+  --arcana: #b967ff;
+  --beyond: #35e0c6;
+  --celestial: #ffd700;
+  --divine: #f5f5ff;
+  --cosmic: #ff3df0;
 }
 
 * { box-sizing: border-box; }
@@ -130,6 +135,12 @@ h2 {
   cursor: pointer;
 }
 
+.equip-slot.wrong-class {
+  border-color: var(--immortal);
+  color: var(--immortal);
+  opacity: 0.6;
+}
+
 #inventory-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -161,6 +172,18 @@ h2 {
 .item-card.rarity-rare { border-left: 3px solid var(--rare); }
 .item-card.rarity-legendary { border-left: 3px solid var(--legendary); }
 .item-card.rarity-immortal { border-left: 3px solid var(--immortal); }
+.item-card.rarity-arcana { border-left: 3px solid var(--arcana); }
+.item-card.rarity-beyond { border-left: 3px solid var(--beyond); }
+.item-card.rarity-celestial { border-left: 3px solid var(--celestial); }
+.item-card.rarity-divine { border-left: 3px solid var(--divine); }
+.item-card.rarity-cosmic { border-left: 3px solid var(--cosmic); }
+
+.item-class-restriction {
+  color: var(--text-dim);
+  font-size: 10px;
+  font-style: italic;
+  margin-top: 2px;
+}
 
 .empty-state {
   color: var(--text-dim);

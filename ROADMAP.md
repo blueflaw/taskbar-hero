@@ -24,23 +24,30 @@ quick-scan history, not the deep dive.)*
 - [x] Ranged attacker draw/recoil animation (Ranger/Archer pull back then release, shot launches at the recoil moment)
 - [x] Boss unique mechanics (enrage at 50% hp, telegraphed heavy attack every 3rd swing - see README for full detail)
 - [x] Floor + walking-to-next-fight animation (proper textured floor band; heroes march-in-place on wave transitions via a treadmill effect - see README)
-- [x] **Full hero/monster stat system** — heroes (and monsters, same shape)
-  now have: Level, Exp, Attack Damage, Current HP, Attack Speed, Armor
-  (renamed from the old internal `def`), Critical Chance + Critical Damage
-  (new mechanic - both sides can now crit), Cooldown Reduction (shrinks
-  effective time between attacks), Move Speed (scales lunge/travel
-  animation speed), Cast Speed (stored, **not yet wired to a mechanic** -
-  no ability/cast system exists yet), and a computed Basic Attack DPS
-  stat. All tunable per class/role in `config/heroClasses.js` and
-  `config/enemyRoles.js` - see the "Editing stats" section in README for
-  exact locations and what each field does. Crit and heavy-attack visuals
-  now stack (a heavy AND crit hit shows both cues). Verified with a
-  deterministic logic test: DPS formula, cooldown-reduction math, and crit
-  ratio all matched their configured values exactly.
+- [x] Full hero/monster stat system (Level/Exp/Attack Damage/HP/Attack Speed/Armor/Crit/CDR/Move Speed/Cast Speed - see README for exact locations and what each does)
+- [x] **Named equipment + expanded rarity + class restrictions** — weapons
+  are no longer generic "Common weapon" labels. `config/weaponTypes.js` is
+  **the file to add named weapons in** - a weapon type (currently just
+  `sword`, Knight-only, your 20 requested names) has a name pool, an
+  `allowedClasses` restriction, and base stats that scale with the rolled
+  rarity. Rarity expanded from 5 to your requested 10 tiers (Common through
+  Cosmic). Items now carry a `stats: {...}` object (multiple stat bonuses at
+  once, e.g. a sword grants both `atk` and `attackSpeed`) instead of one
+  generic number - `Hero.js` aggregates equipped items' stats generically,
+  so *any* stat key an item grants (crit, armor, cooldown reduction, move
+  speed, ...) works automatically with no extra wiring. Wrong-class equip
+  attempts are rejected in both the data layer (`Hero.canEquip()`) and the
+  UI (red "wrong-class" slot styling) - and I caught and fixed a real bug
+  while wiring this up: the equip handler used to remove an item from
+  inventory *before* validating it, so a rejected equip would have silently
+  deleted the item. Fixed by validating first.
 - [ ] **Next up is your call** — see "possible next steps" below.
 
 **Where to edit things** (see README for full detail):
 - Hero/monster stats: `config/heroClasses.js` and `config/enemyRoles.js`
+- **Named weapons** (add more names, or a new weapon type for Ranger/Priest
+  once you have names picked): `config/weaponTypes.js`
+- Rarity tiers/weights/multipliers: `config/lootTables.js`
 - Floor appearance/height: `src/fx/Background.js` (`_buildFloorLayer`) and
   `groundY` in `game.js`
 - A different floor per level/stage tier is a natural next step once you're

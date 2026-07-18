@@ -37,10 +37,12 @@ function renderParty() {
     const slotsHtml = ['weapon', 'armor', 'trinket']
       .map((slot) => {
         const equipped = hero.equipment[slot];
-        const canEquipHere = selectedItem && selectedItem.slot === slot;
+        const classOk = !selectedItem?.allowedClasses || selectedItem.allowedClasses.includes(hero.classId);
+        const canEquipHere = selectedItem && selectedItem.slot === slot && classOk;
         const classes = ['equip-slot'];
         if (equipped) classes.push('filled');
         if (canEquipHere) classes.push('equippable');
+        if (selectedItem && selectedItem.slot === slot && !classOk) classes.push('wrong-class');
 
         const label = equipped ? equipped.label : `+ ${slot}`;
         return `<div class="${classes.join(' ')}" data-hero-id="${hero.id}" data-slot="${slot}">${label}</div>`;
@@ -68,6 +70,32 @@ function renderParty() {
   });
 }
 
+const STAT_LABELS = {
+  atk: 'ATK',
+  attackSpeed: 'SPD',
+  armor: 'ARM',
+  critChance: 'CRIT%',
+  critDamageMult: 'CRIT DMG',
+  cooldownReduction: 'CDR',
+  moveSpeed: 'MOVE',
+  castSpeed: 'CAST',
+  hp: 'HP',
+};
+
+function formatStats(stats) {
+  return Object.entries(stats || {})
+    .map(([key, value]) => `+${value} ${STAT_LABELS[key] ?? key}`)
+    .join(', ');
+}
+
+function formatClassRestriction(item) {
+  if (!item.allowedClasses) return '';
+  // classId -> display label isn't sent over the wire for items (only for
+  // party members) - title-casing the id is good enough for a small badge.
+  const names = item.allowedClasses.map((id) => id.charAt(0).toUpperCase() + id.slice(1));
+  return `<div class="item-class-restriction">${names.join('/')} only</div>`;
+}
+
 function renderInventory() {
   inventoryGrid.innerHTML = '';
 
@@ -83,7 +111,8 @@ function renderInventory() {
 
     card.innerHTML = `
       <div>${item.label}</div>
-      <div class="item-stat">+${item.statBonus} stat</div>
+      <div class="item-stat">${formatStats(item.stats)}</div>
+      ${formatClassRestriction(item)}
     `;
 
     card.addEventListener('click', () => {

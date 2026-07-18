@@ -217,7 +217,12 @@ async function main() {
     const itemIndex = gameState.inventory.findIndex((i) => i.id === itemId);
     if (!hero || itemIndex === -1) return;
 
-    const [item] = gameState.inventory.splice(itemIndex, 1);
+    const item = gameState.inventory[itemIndex];
+    // Check BEFORE removing from inventory - if we spliced first and equip()
+    // rejected it (wrong class for this weapon), the item would just vanish.
+    if (!hero.canEquip(item)) return;
+
+    gameState.inventory.splice(itemIndex, 1);
     const previouslyEquipped = hero.equipment[item.slot];
     hero.equip(item);
     if (previouslyEquipped) gameState.inventory.push(previouslyEquipped);
