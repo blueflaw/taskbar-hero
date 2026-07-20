@@ -1,10 +1,25 @@
 import * as PIXI from 'pixi.js';
+import { BOSS_INTERVAL } from '../config/waveConfig.js';
 
 const BASE_SPEED = 12; // px/sec baseline scroll, sells constant forward travel
 const BURST_DECAY = 140; // px/sec^2 - how fast a pulse's extra speed fades
 
 const NORMAL_TINT = { r: 0x8a, g: 0x7a, b: 0xd1 };
 const DANGER_TINT = { r: 0xe0, g: 0x48, b: 0x48 }; // matches the app's red accent
+
+// One base tone per boss cycle (stages 1-9 = tier 0, 11-19 = tier 1, ...),
+// cycling once you run out - gives each stretch of the run a distinct feel
+// even before the danger-tint blend kicks in near the next boss. Tuned as
+// multiplicative tints against the floor's own baked colors (see
+// _buildFloorLayer), so keep these reasonably close to white/neutral rather
+// than pure hues - tint MULTIPLIES the texture, it doesn't replace it.
+const FLOOR_TIER_PALETTE = [
+  { r: 0xff, g: 0xff, b: 0xff }, // tier 0: neutral dirt path (no shift - the original look)
+  { r: 0xb2, g: 0xff, b: 0xb0 }, // tier 1: mossy/grassy
+  { r: 0xff, g: 0xe0, b: 0xa0 }, // tier 2: sandy/desert
+  { r: 0xa8, g: 0xd8, b: 0xff }, // tier 3: icy/frost
+  { r: 0xff, g: 0xa8, b: 0xa0 }, // tier 4: volcanic/ash
+];
 
 function lerpColor(from, to, t) {
   const r = Math.round(from.r + (to.r - from.r) * t);
@@ -66,8 +81,10 @@ export class Background {
     const gfx = new PIXI.Graphics();
 
     // Base path fill - a warm, neutral dirt-path tone. Baked as real colors
-    // (not runtime .tint) since this layer needs several distinct shades in
-    // the same texture, and .tint can only multiply a whole sprite uniformly.
+    // (not purely runtime .tint) since this layer needs several distinct
+    // shades in the same texture - tinting at runtime (see setStage()) then
+    // multiplies these as a group rather than replacing them, which keeps
+    // the highlight/fleck detail visible under every stage theme.
     gfx.beginFill(0x4a4038, 1);
     gfx.drawRect(0, 0, tileW, tileH);
     gfx.endFill();
@@ -98,10 +115,23 @@ export class Background {
     this.burstSpeed = 70;
   }
 
-  /** t: 0 (just past a boss) .. 1 (next boss stage imminent). Shifts the hill
-   * tint from its normal purple toward the app's danger red as tension builds. */
-  setBossProximity(t) {
-    this.hillLayer.tint = lerpColor(NORMAL_TINT, DANGER_TINT, Math.max(0, Math.min(1, t)));
+  /**
+   * Call with the current stage number whenever it changes (wave-spawned).
+   * Two things happen together:
+   *  - The hill layer shifts from its normal purple toward danger red as
+   *    the stage approaches the next boss (unchanged from before).
+   *  - The floor layer's BASE tone changes once per boss cycle (tier =
+   *    floor(stage / BOSS_INTERVAL), see FLOOR_TIER_PALETTE) - a different
+   *    "biome" feel per stretch of the run - and *also* blends toward that
+   *    same danger red as the boss approaches, same as the hills.
+   */
+  setStage(stage) {
+    const proximity = Math.max(0, Math.min(1, (stage % BOSS_INTERVAL) / BOSS_INTERVAL));
+    this.hillLayer.tint = lerpColor(NORMAL_TINT, DANGER_TINT, proximity);
+
+    const tier = Math.floor(stage / BOSS_INTERVAL) % FLOOR_TIER_PALETTE.length;
+    const tierBase = FLOOR_TIER_PALETTE[tier];
+    this.floorLayer.tint = lerpColor(tierBase, DANGER_TINT, proximity);
   }
 
   update(deltaSeconds) {

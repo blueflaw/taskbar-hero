@@ -25,22 +25,22 @@ quick-scan history, not the deep dive.)*
 - [x] Boss unique mechanics (enrage at 50% hp, telegraphed heavy attack every 3rd swing - see README for full detail)
 - [x] Floor + walking-to-next-fight animation (proper textured floor band; heroes march-in-place on wave transitions via a treadmill effect - see README)
 - [x] Full hero/monster stat system (Level/Exp/Attack Damage/HP/Attack Speed/Armor/Crit/CDR/Move Speed/Cast Speed - see README for exact locations and what each does)
-- [x] **Named equipment + expanded rarity + class restrictions** — weapons
-  are no longer generic "Common weapon" labels. `config/weaponTypes.js` is
-  **the file to add named weapons in** - a weapon type (currently just
-  `sword`, Knight-only, your 20 requested names) has a name pool, an
-  `allowedClasses` restriction, and base stats that scale with the rolled
-  rarity. Rarity expanded from 5 to your requested 10 tiers (Common through
-  Cosmic). Items now carry a `stats: {...}` object (multiple stat bonuses at
-  once, e.g. a sword grants both `atk` and `attackSpeed`) instead of one
-  generic number - `Hero.js` aggregates equipped items' stats generically,
-  so *any* stat key an item grants (crit, armor, cooldown reduction, move
-  speed, ...) works automatically with no extra wiring. Wrong-class equip
-  attempts are rejected in both the data layer (`Hero.canEquip()`) and the
-  UI (red "wrong-class" slot styling) - and I caught and fixed a real bug
-  while wiring this up: the equip handler used to remove an item from
-  inventory *before* validating it, so a rejected equip would have silently
-  deleted the item. Fixed by validating first.
+- [x] Named equipment + expanded rarity + class restrictions (weaponTypes.js for named weapons, 10 rarity tiers, class-restricted swords - see README for full detail)
+- [x] **Per-stage floor theme** — the floor now has two things layered
+  together: a distinct base tone per boss cycle (`FLOOR_TIER_PALETTE` in
+  `Background.js` - tier = `floor(stage / BOSS_INTERVAL)`, 5 tones cycling:
+  neutral dirt → mossy → sandy → icy → volcanic → back to neutral), and the
+  *same* tension-building blend toward danger red as the boss approaches
+  that the hill layer already had - so the floor now genuinely looks
+  different as you push through each 10-stage stretch, and still builds
+  visible tension right before every boss. `Background.setBossProximity(t)`
+  was replaced with `setStage(stage)` - it now takes the raw stage number
+  and computes both the hill tint and the floor's tier+tension blend
+  internally, so `game.js` doesn't need to know the tier math at all.
+  Verified with an exact math check before touching the renderer: at stage
+  15/25/35/50 the actual applied tint matched hand-calculated values
+  byte-for-byte, including the palette correctly wrapping back to tier 0
+  after stage 50 (5 tiers × `BOSS_INTERVAL`).
 - [ ] **Next up is your call** — see "possible next steps" below.
 
 **Where to edit things** (see README for full detail):
@@ -50,10 +50,8 @@ quick-scan history, not the deep dive.)*
 - Rarity tiers/weights/multipliers: `config/lootTables.js`
 - Floor appearance/height: `src/fx/Background.js` (`_buildFloorLayer`) and
   `groundY` in `game.js`
-- A different floor per level/stage tier is a natural next step once you're
-  ready - `Background.setBossProximity()` already re-tints the hill layer
-  based on stage, so a `setFloorTheme(stage)`-style method following the
-  same pattern is the way to go; ask and we can build it together.
+- **Floor tier colors/how many tiers**: `FLOOR_TIER_PALETTE` in
+  `src/fx/Background.js` - add/edit entries to change the per-cycle palette.
 
 **Working split going forward:** code/animation/systems work stays with
 Claude; art and content ideas are a good lane for you to drive in parallel

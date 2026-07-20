@@ -425,19 +425,41 @@ A few implementation notes worth knowing if you're tuning numbers:
 
 - **Floor appearance** (color, texture, height): `Background._buildFloorLayer()`
   in `src/fx/Background.js`. `tileH` controls the floor's height in pixels;
-  the three `beginFill()` calls control its colors (base fill, top-edge
-  highlight, texture flecks); `layer.alpha` controls how much the desktop
-  shows through underneath it.
+  the three `beginFill()` calls control its baked colors (base fill,
+  top-edge highlight, texture flecks) - these are the *neutral* colors,
+  before any per-stage tint is applied (see below); `layer.alpha` controls
+  how much the desktop shows through underneath it.
 - **Where the floor sits vertically** (and therefore where characters'
   feet land): `groundY` in `game.js` (`app.screen.height - 2`) - this is
   the single source of truth for "the ground," used by hero/enemy sprite
   positioning, the floor layer, and health bar placement alike.
-- **A different floor per stage/level** isn't built yet, but there's a
-  ready-made pattern to follow: `Background.setBossProximity()` already
-  swaps the hill layer's tint based on the current stage every time a wave
-  spawns. A `setFloorTheme(stage)` method the same shape - regenerating or
-  re-tinting the floor texture based on stage tier - would slot in the same
-  way. Good next step whenever you're ready for it.
+
+### Per-stage floor theme
+
+The floor's color now changes in two ways at once, both driven by
+`Background.setStage(stage)` - called from `game.js`'s `wave-spawned`
+handler every time the stage changes:
+
+- **A different base tone every boss cycle.** `FLOOR_TIER_PALETTE` in
+  `Background.js` is an array of tint colors, one per 10-stage stretch
+  (`tier = Math.floor(stage / BOSS_INTERVAL)`) - neutral dirt → mossy →
+  sandy → icy → volcanic, then wrapping back to neutral once you run out of
+  palette entries. **This is the array to edit** to add more tiers, change
+  the colors, or reorder the progression.
+- **The same tension-building blend toward red that the hill layer already
+  had**, layered on top of that tier's base tone as the stage approaches
+  the next boss (`(stage % BOSS_INTERVAL) / BOSS_INTERVAL`) - so within any
+  given tier, the floor still visibly warns you a boss is close, it just
+  warns from a different starting color depending on which stretch of the
+  run you're in.
+
+Both effects are runtime `.tint` multiplication against the floor's baked
+texture (not separate textures per tier - one texture, recolored), so
+adding a tier is a one-line addition to the palette array, no new art or
+texture-generation code needed. Verified with an exact math check before
+touching the renderer - at several test stages, the actual tint value
+`Background` applied matched hand-calculated predictions byte-for-byte,
+including the palette wrapping back to tier 0 correctly past its end.
 
 ### Equipment: named weapons, rarity, and class restrictions
 
@@ -500,15 +522,24 @@ showed up correctly.
 Full checklist lives in `ROADMAP.md`. With waves, formations (on both the
 enemy and hero side), recruiting, projectiles, health bars, real melee
 collision, engage-and-hold, ranged draw/recoil, boss enrage/heavy-attack
-mechanics, a proper floor, the wave-transition walk animation, a full
-hero/monster stat system, and named/rarity/class-restricted equipment all
-working, reasonable next moves: Ranger and Priest weapon types (the files
-are ready, just need names), a 4th hero class, real arrow/bolt sprites for
-projectiles instead of colored dots, a per-stage floor theme (see above),
-or a guaranteed rare+ drop specifically from boss kills.
+mechanics, a proper floor with a per-stage theme, the wave-transition walk
+animation, a full hero/monster stat system, and named/rarity/class-restricted
+equipment all working, reasonable next moves: Ranger and Priest weapon
+types (the files are ready, just need names), a 4th hero class, real
+arrow/bolt sprites for projectiles instead of colored dots, or a guaranteed
+rare+ drop specifically from boss kills.
 
 ## Known rough edges (intentional, for a prototype)
 
+- The floor's tier palette (`FLOOR_TIER_PALETTE`) only has 5 entries and
+  then repeats - stage 51+ looks the same as stage 1+ again. Adding more
+  entries is a one-line change if you want more visual variety deeper into
+  a run before it starts repeating.
+- Floor tier colors are tuned as multiplicative tints against the floor's
+  existing baked colors (warm dirt tones), so very different hues (e.g. a
+  vivid blue) will look muted/desaturated compared to what you'd expect
+  from the raw palette value - the underlying texture still shows through.
+  Worth knowing if a tier's color looks "off" compared to its hex value.
 - Only `sword` (Knight) has real named weapons - Ranger and Priest have no
   class-restricted weapon type yet, so a weapon-slot drop can currently
   only ever be a sword. Add `bow`/`staff` (or whatever) to

@@ -453,7 +453,7 @@ async function main() {
       enemyEntries = [];
 
       background.pulse();
-      background.setBossProximity((event.stage % BOSS_INTERVAL) / BOSS_INTERVAL);
+      background.setStage(event.stage);
 
       const waveSize = event.enemies.length;
       event.enemies.forEach((enemy, i) => {
